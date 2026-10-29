@@ -1,0 +1,220 @@
+---
+# vars/best_practice.yml — эталон "бест практис" для RouterOS 7.25 gateway
+# Каждый чек — rule с severity, check и remediation. Аудит сверяет факты.
+
+best_practice_rules:
+
+  # === 1. System ===
+  - id: SYS-001
+    category: system
+    title: "NTP клиент включён и настроен"
+    severity: high       # critical/high/medium/low
+    check: "ntp.enabled == true and ntp.servers contains expected"
+    expected:
+      enabled: true
+      servers: ["pool.ntp.org", "time.cloudflare.com"]
+    remediation: "/system ntp client set enabled=yes servers=pool.ntp.org,time.cloudflare.com"
+    grafana_metric: mikrotik_audit_ntp_ok
+
+  - id: SYS-002
+    category: system
+    title: "Часовой пояс Europe/Moscow"
+    severity: medium
+    expected: "Europe/Moscow"
+    check: "clock.time-zone-name == 'Europe/Moscow'"
+    remediation: "/system clock set time-zone-name=Europe/Moscow"
+
+  - id: SYS-003
+    category: system
+    title: "Identity установлена (не MikroTik по умолчанию)"
+    severity: medium
+    check: "identity.name != 'MikroTik' and identity.name != ''"
+    remediation: '/system identity set name="{{ inventory_hostname }}"'
+
+  - id: SYS-004
+    category: system
+    title: "RouterOS версия соответствует эталону 7.25"
+    severity: high
+    check: "resource.version startswith '7.25'"
+    expected: "7.25"
+    remediation: "/system package update install  # или netinstall"
+
+  # === 2. Архитектура шлюза (п.3 ТЗ) ===
+  - id: NET-001
+    category: network
+    title: "WAN — ether1 с адресом 111.111.111.111"
+    severity: critical
+    check: "addresses contains 111.111.111.111 on ether1"
+    expected:
+      interface: ether1
+      address: "111.111.111.111"
+    remediation: "/ip address add address=111.111.111.111/24 interface=ether1"
+
+  - id: NET-002
+    category: network
+    title: "LAN — bridge1 192.168.0.50/16 (ether2-10 в бридже)"
+    severity: critical
+    check: "bridge_ports == [ether2..ether10] and address 192.168.0.50/16 on bridge1"
+    expected:
+      bridge: bridge1
+      ports: [ether2, ether3, ether4, ether5, ether6, ether7, ether8, ether9, ether10]
+      address: "192.168.0.50/16"
+    remediation: |
+      /interface bridge add name=bridge1
+      /interface bridge port add bridge=bridge1 interface=ether2
+      ... ether10
+      /ip address add address=192.168.0.50/16 interface=bridge1
+
+  - id: NET-003
+    category: network
+    title: "Стандартный маршрут через WAN"
+    severity: critical
+    check: "routes has 0.0.0.0/0 via gateway on ether1"
+    remediation: "/ip route add dst-address=0.0.0.0/0 gateway=111.111.111.1"
+
+  # === 3. Users ===
+  - id: USR-001
+    category: users
+    title: "Техническая учётка ansible существует (group=full, адрес 192.168.0.0/16)"
+    severity: high
+    check: "users contains ansible with group full and address 192.168.0.0/16"
+    remediation: "/user add name=ansible group=full address=192.168.0.0/16 password=***"
+
+  - id: USR-002
+    category: users
+    title: "Учётка admin не с дефолтным паролем и/или отключена"
+    severity: critical
+    check: "admin password != '' and not default"
+    remediation: "/user set admin password=...  # сменить, хранить в vault"
+
+  - id: USR-003
+    category: users
+    title: "SSH strong-crypto включён"
+    severity: high
+    check: "ip.ssh.strong-crypto == true"
+    remediation: "/ip ssh set strong-crypto=yes"
+
+  # === 4. Services ===
+  - id: SVC-001
+    category: services
+    title: "Отключены небезопасные сервисы (telnet, ftp, www, api)"
+    severity: high
+    check: "services telnet/ftp/www/api disabled"
+    expected_disabled: [telnet, ftp, www, api]
+    remediation: "/ip service disable telnet,ftp,www,api"
+
+  - id: SVC-002
+    category: services
+    title: "API-SSL доступен только из LAN 192.168.0.0/16"
+    severity: high
+    check: "service api-ssl address == 192.168.0.0/16"
+    remediation: "/ip service set api-ssl address=192.168.0.0/16 port=8729 disabled=no"
+
+  - id: SVC-003
+    category: services
+    title: "SSH доступен только из LAN, winbox ограничен"
+    severity: high
+    check: "ssh address 192.168.0.0/16, winbox address 192.168.0.0/16"
+    remediation: "/ip service set ssh address=192.168.0.0/16  # winbox аналогично"
+
+  - id: SVC-004
+    category: services
+    title: "Neighbor discovery отключён на WAN (ether1)"
+    severity: medium
+    check: "discovery on ether1 disabled"
+    remediation: "/ip neighbor discovery-settings set discover-interface-list=!WAN"
+
+  - id: SVC-005
+    category: services
+    title: "MAC-server ограничен LAN"
+    severity: medium
+    check: "tool mac-server disabled on ether1"
+    remediation: "/tool mac-server set allowed-interface-list=LAN"
+
+  # === 5. Firewall & NAT (критично для шлюза) ===
+  - id: FW-001
+    category: firewall
+    title: "Firewall input: accept established,related"
+    severity: critical
+    check: "firewall filter has chain=input action=accept connection-state=established,related"
+    remediation: '/ip firewall filter add chain=input action=accept connection-state=established,related comment="defconf: accept established"'
+
+  - id: FW-002
+    category: firewall
+    title: "Firewall input: drop invalid"
+    severity: critical
+    check: "chain=input action=drop connection-state=invalid"
+    remediation: '/ip firewall filter add chain=input action=drop connection-state=invalid'
+
+  - id: FW-003
+    category: firewall
+    title: "Firewall input: финальный drop всего кроме LAN"
+    severity: critical
+    check: "final input drop rule exists"
+    remediation: '/ip firewall filter add chain=input action=drop in-interface-list=!LAN comment="defconf: drop all not LAN"'
+
+  - id: FW-004
+    category: firewall
+    title: "NAT masquerade на ether1 (LAN → WAN)"
+    severity: critical
+    check: "firewall nat has chain=srcnat action=masquerade out-interface=ether1"
+    remediation: '/ip firewall nat add chain=srcnat action=masquerade out-interface=ether1 comment="defconf: masquerade"'
+
+  - id: FW-005
+    category: firewall
+    title: "Нет открытых лишних портов на WAN (dst-nat только по необходимости)"
+    severity: high
+    check: "no dst-nat to LAN without comment/approval"
+    remediation: "Проверить /ip firewall nat print где chain=dstnat"
+
+  - id: FW-006
+    category: firewall
+    title: "Forward: drop invalid + защита"
+    severity: high
+    check: "forward has drop invalid, established"
+    remediation: '/ip firewall filter add chain=forward action=accept connection-state=established,related'
+
+  # === 6. DNS / DHCP ===
+  - id: DNS-001
+    category: dns
+    title: "DNS серверы 1.1.1.1, 8.8.8.8 (или корпоративные), allow-remote-requests ограничен"
+    severity: medium
+    check: "dns servers == [1.1.1.1,8.8.8.8] and not open resolver"
+    remediation: "/ip dns set servers=1.1.1.1,8.8.8.8 allow-remote-requests=no"
+
+  - id: DHCP-001
+    category: dhcp
+    title: "DHCP сервер для LAN настроен (pool, network)"
+    severity: medium
+    check: "dhcp-server exists for bridge1"
+    remediation: "/ip pool add name=pool-lan ranges=192.168.100.100-192.168.200.100"
+
+  # === 7. Monitoring / Logging ===
+  - id: MON-001
+    category: monitoring
+    title: "SNMP ограничен LAN и community не default"
+    severity: medium
+    check: "snmp community != public"
+    remediation: "/snmp set enabled=yes contact=... community=StrongRo"
+
+  - id: MON-002
+    category: monitoring
+    title: "Syslog/remote logging на 192.168.0.10"
+    severity: low
+    check: "system logging remote 192.168.0.10"
+    remediation: "/system logging action add name=remote target=remote remote=192.168.0.10"
+
+  # === 8. Maintenance ===
+  - id: MNT-001
+    category: maintenance
+    title: "Бэкап по расписанию (scheduler)"
+    severity: medium
+    check: "system scheduler has backup job"
+    remediation: '/system scheduler add name=backup on-event="/system backup save name=auto" start-time=02:00 interval=1d'
+
+  - id: MNT-002
+    category: maintenance
+    title: "Cloud backup отключён (если не нужен)"
+    severity: low
+    check: "ip cloud ddns-enabled == false (опционально)"
+    remediation: "/ip cloud set ddns-enabled=no update-time=no"

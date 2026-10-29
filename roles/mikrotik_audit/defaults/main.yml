@@ -1,0 +1,5 @@
+---
+audit_output_dir: "./reports"
+audit_prometheus_pushgateway: "http://192.168.0.10:9091"  # Prometheus Pushgateway для Grafana
+audit_fail_on_critical: false
+audit_export_prometheus: true

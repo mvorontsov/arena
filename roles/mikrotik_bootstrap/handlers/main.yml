@@ -1,0 +1,11 @@
+---
+- name: Сохранить конфигурацию
+  community.routeros.api_modify:
+    path: system script
+    data: []
+  listen: Сохранить конфигурацию
+
+# RouterOS сохраняет автоматически, хендлер — заглушка для идемпотентности
+- name: Перезапуск API (если нужно)
+  ansible.builtin.debug:
+    msg: "API перезапуск не требуется"

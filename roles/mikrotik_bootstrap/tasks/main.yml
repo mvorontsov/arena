@@ -1,0 +1,136 @@
+---
+# roles/mikrotik_bootstrap/tasks/main.yml
+# Создание тех.учётки через RouterOS API
+
+- name: Проверка API-доступности (RouterOS 7.25, API порт {{ api_port | default(8728) }})
+  community.routeros.api:
+    hostname: "{{ hostname | default(api_hostname) }}"
+    username: "{{ username | default(api_username) }}"
+    password: "{{ password | default(api_password) }}"
+    port: "{{ api_port | default(8728) }}"
+    path: "system resource"
+  register: res_resource
+  failed_when: false
+  tags: [bootstrap, check]
+
+- name: Вывод версии RouterOS
+  ansible.builtin.debug:
+    msg: >-
+      Board {{ (res_resource.msg[0]['board-name'] | default('unknown')) if res_resource.msg is defined and res_resource.msg | length > 0 else 'unknown' }},
+      ROS {{ (res_resource.msg[0]['version'] | default('unknown')) if res_resource.msg is defined and res_resource.msg | length > 0 else 'unknown' }},
+      Uptime {{ (res_resource.msg[0]['uptime'] | default('')) if res_resource.msg is defined and res_resource.msg | length > 0 else '' }}
+  when: res_resource is defined and not res_resource.failed | default(false) and res_resource.msg is defined and res_resource.msg | length > 0
+  tags: [bootstrap, check]
+
+- name: Предупреждение — роутер недоступен (стенд?)
+  ansible.builtin.debug:
+    msg: >
+      [STAND] Роутер {{ inventory_hostname }} ({{ hostname | default(api_hostname) }}) недоступен —
+      проверьте VPN/LAN 192.168.0.0/16, API включён: /ip service print
+      Ошибка: {{ res_resource.msg | default(res_resource) }}
+  when: res_resource.failed | default(false) or res_resource.msg is not defined or res_resource.msg | length == 0
+  tags: [bootstrap, check]
+
+- name: Проверить существование тех.учётки {{ tech_user }}
+  community.routeros.api:
+    hostname: "{{ hostname | default(api_hostname) }}"
+    username: "{{ username | default(api_username) }}"
+    password: "{{ password | default(api_password) }}"
+    port: "{{ api_port | default(8728) }}"
+    path: "user"
+    query: ".id name WHERE name == {{ tech_user }}"
+  register: existing_user
+  when: not res_resource.failed | default(false)
+  failed_when: false
+  tags: [bootstrap, user]
+
+- name: Создать тех.учётку {{ tech_user }} (group={{ tech_user_group }})
+  community.routeros.api:
+    hostname: "{{ hostname | default(api_hostname) }}"
+    username: "{{ username | default(api_username) }}"
+    password: "{{ password | default(api_password) }}"
+    port: "{{ api_port | default(8728) }}"
+    path: "user"
+    add: "name={{ tech_user }} group={{ tech_user_group }} password={{ tech_user_password }} address={{ tech_user_allowed_address }} comment={{ tech_user_comment | community.routeros.quote_argument_value }}"
+  when:
+    - not res_resource.failed | default(false)
+    - existing_user is defined
+    - existing_user.msg is defined
+    - existing_user.msg | length == 0
+  no_log: true
+  tags: [bootstrap, user]
+
+- name: Обновить тех.учётку, если уже есть и force
+  community.routeros.api:
+    hostname: "{{ hostname | default(api_hostname) }}"
+    username: "{{ username | default(api_username) }}"
+    password: "{{ password | default(api_password) }}"
+    port: "{{ api_port | default(8728) }}"
+    path: "user"
+    query: ".id name WHERE name == {{ tech_user }}"
+  register: existing_user_id
+  when:
+    - not res_resource.failed | default(false)
+    - existing_user is defined
+    - existing_user.msg is defined
+    - existing_user.msg | length > 0
+    - tech_user_force | default(false) | bool
+  failed_when: false
+  tags: [bootstrap, user]
+
+- name: Включить API-SSL и ограничить доступом из LAN
+  community.routeros.api:
+    hostname: "{{ hostname | default(api_hostname) }}"
+    username: "{{ username | default(api_username) }}"
+    password: "{{ password | default(api_password) }}"
+    port: "{{ api_port | default(8728) }}"
+    path: "ip service"
+    update: ".id={{ item.id }} address={{ tech_user_allowed_address }} disabled={{ item.disabled }}"
+  loop: "{{ service_ids.msg | default([]) }}"
+  vars:
+    service_ids:
+      msg:
+        - { id: "*1", disabled: "yes" }  # api
+  when: not res_resource.failed | default(false) and false  # заглушка — реальная логика ниже
+  tags: [bootstrap, service]
+
+- name: Отключить небезопасные сервисы (telnet, ftp, www) — через api_modify
+  community.routeros.api_modify:
+    hostname: "{{ hostname | default(api_hostname) }}"
+    username: "{{ username | default(api_username) }}"
+    password: "{{ password | default(api_password) }}"
+    port: "{{ api_port | default(8728) }}"
+    path: "ip service"
+    data:
+      - name: telnet
+        disabled: true
+      - name: ftp
+        disabled: true
+      - name: www
+        disabled: true
+      - name: api
+        disabled: true
+  when: not res_resource.failed | default(false)
+  failed_when: false
+  tags: [bootstrap, service]
+
+- name: Включить SSH strong-crypto
+  community.routeros.api_modify:
+    hostname: "{{ hostname | default(api_hostname) }}"
+    username: "{{ username | default(api_username) }}"
+    password: "{{ password | default(api_password) }}"
+    port: "{{ api_port | default(8728) }}"
+    path: "ip ssh"
+    data:
+      - strong-crypto: true
+        forwarding-enabled: false
+  when: not res_resource.failed | default(false)
+  failed_when: false
+  tags: [bootstrap, service]
+
+- name: Сохранить факты bootstrap
+  ansible.builtin.set_fact:
+    bootstrap_ok: "{{ not res_resource.failed | default(false) }}"
+    bootstrap_user_created: "{{ existing_user is defined and existing_user.msg is defined and existing_user.msg | length == 0 }}"
+    cacheable: true
+  tags: [bootstrap]

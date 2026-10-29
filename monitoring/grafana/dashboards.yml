@@ -1,0 +1,11 @@
+apiVersion: 1
+providers:
+  - name: mikrotik
+    orgId: 1
+    folder: Mikrotik
+    type: file
+    disableDeletion: false
+    editable: true
+    allowUiUpdates: true
+    options:
+      path: /etc/grafana/provisioning/dashboards

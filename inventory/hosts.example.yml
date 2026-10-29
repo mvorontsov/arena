@@ -1,0 +1,33 @@
+---
+# inventory/hosts.example.yml — пример для ПРОДА (192.168.0.0/16 LAN)
+# Скопируйте в hosts.yml и заполните реальные пароли (vault)
+
+all:
+  vars:
+    ansible_connection: local
+    ansible_user: admin
+    ansible_password: "{{ vault_mikrotik_password | default('changeme') }}"
+    api_hostname: "192.168.0.50"
+    api_port: 8728
+
+  children:
+    mikrotik:
+      vars:
+        routeros_version_expected: "7.25"
+        gateway_lan_cidr: "192.168.0.0/16"
+        gateway_lan_ip: "192.168.0.50/16"
+        gateway_lan_bridge: "bridge1"
+        gateway_wan_if: "ether1"
+        gateway_wan_ip: "111.111.111.111/24"
+      hosts:
+        gw-core-01:
+          ansible_host: 192.168.0.50
+          hostname: 192.168.0.50
+          wan_address: 111.111.111.111
+          wan_interface: ether1
+          lan_bridge: bridge1
+          lan_ports: [ether2, ether3, ether4, ether5, ether6, ether7, ether8, ether9, ether10]
+          location: "Moscow DC — rack A1 — WAN ether1 111.111.111.111, LAN bridge1 192.168.0.50/16"
+          role: gateway
+          username: admin
+          password: "{{ vault_mikrotik_password | default('changeme') }}"

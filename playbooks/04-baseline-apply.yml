@@ -1,0 +1,27 @@
+---
+# playbooks/04-baseline-apply.yml — раскатка эталонного конфига на весь флот
+# Логика: эталон хранится в config/baseline/, правится там, затем раскатывается
+# Безопасно: по умолчанию dry-run (только diff), apply — с --tags apply
+# Запуск:
+#   ansible-playbook playbooks/04-baseline-apply.yml --tags diff     # посмотреть разницу
+#   ansible-playbook playbooks/04-baseline-apply.yml --tags apply    # применить
+
+- name: Baseline — эталонный конфиг для шлюза
+  hosts: mikrotik
+  gather_facts: true
+  serial: 1  # по одному, чтобы не положить весь флот
+  tags: [baseline]
+
+  vars:
+    baseline_dir: "config/baseline"
+    baseline_backup_before: true
+
+  tasks:
+    - name: Роль baseline
+      ansible.builtin.include_role:
+        name: mikrotik_baseline
+
+  post_tasks:
+    - name: Итог baseline
+      ansible.builtin.debug:
+        msg: "Baseline для {{ inventory_hostname }}: diff см. /tmp/{{ inventory_hostname }}-desired.rsc, бэкап в config/backups/"

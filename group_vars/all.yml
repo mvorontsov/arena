@@ -1,0 +1,77 @@
+---
+# group_vars/all.yml — общие переменные для всего флота
+
+# === Техническая учётка для Ansible ===
+tech_user: ansible
+tech_user_group: full
+tech_user_password: "{{ vault_tech_password | default('Ans1ble_Str0ng_2025!') }}"
+tech_user_ssh_pubkey: "{{ lookup('file', '~/.ssh/id_rsa.pub', errors='ignore') | default('') }}"
+tech_user_allowed_address: "192.168.0.0/16"
+tech_user_comment: "Ansible automation — managed, do not edit manually"
+tech_user_force: false
+bootstrap_verify: false
+
+# === Ожидаемая архитектура шлюза (п.3 ТЗ) ===
+expected:
+  wan:
+    interface: ether1
+    address: 111.111.111.111
+    netmask: 24
+    gateway: 111.111.111.1
+  lan:
+    bridge: bridge1
+    address: 192.168.0.50
+    netmask: 16
+    ports: [ether2, ether3, ether4, ether5, ether6, ether7, ether8, ether9, ether10]
+    dhcp_pool: "192.168.0.100-192.168.0.200"
+    dhcp_network: "192.168.0.0/16"
+    dns: ["1.1.1.1", "8.8.8.8"]
+
+# === NTP / DNS / Time ===
+ntp_servers: ["pool.ntp.org", "time.cloudflare.com"]
+ntp_enabled: true
+timezone: "Europe/Moscow"
+dns_servers: ["1.1.1.1", "8.8.8.8"]
+dns_allow_remote_requests: false
+
+# === Безопасность ===
+security:
+  disable_services: ["telnet", "ftp", "www", "api"]
+  enabled_services:
+    - { name: ssh, port: 22, address: "192.168.0.0/16" }
+    - { name: winbox, port: 8291, address: "192.168.0.0/16" }
+    - { name: api-ssl, port: 8729, address: "192.168.0.0/16" }
+  ssh_strong_crypto: true
+  ssh_forwarding: false
+  winbox_restrict: "192.168.0.0/16"
+  neighbor_discovery_wan: false
+  mac_server_wan: false
+
+# === Мониторинг ===
+monitoring:
+  prometheus_enabled: true
+  snmp_enabled: true
+  snmp_community: "{{ vault_snmp_community | default('mikrotik-ro') }}"
+  snmp_address: "192.168.0.0/16"
+  syslog_remote: "192.168.0.10"
+  syslog_port: 514
+
+# === Бэкапы / эталон ===
+backup:
+  enabled: true
+  schedule: "daily"
+  retention: 30
+  encrypt: false
+  path: "./config/backups"
+
+# === Аудит ===
+audit:
+  fail_on_critical: false
+  output_dir: "./reports"
+  grafana_push: false  # на стенде pushgateway может быть не запущен
+
+# Общий порт API для модулей
+gateway_lan_bridge: bridge1
+gateway_wan_if: ether1
+gateway_lan_ip: "192.168.0.50/16"
+gateway_wan_ip: "111.111.111.111/24"

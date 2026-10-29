@@ -1,0 +1,22 @@
+---
+# playbooks/02-inventory.yml — инвентаризация всего флота
+# Запуск: ansible-playbook playbooks/02-inventory.yml
+# Результат: reports/facts/<host>.json + .yml
+
+- name: Инвентаризация — сбор фактов
+  hosts: mikrotik
+  gather_facts: true
+  tags: [inventory]
+
+  vars:
+    inventory_output_dir: "{{ playbook_dir }}/../reports/facts"
+
+  tasks:
+    - name: Роль инвентаризации
+      ansible.builtin.include_role:
+        name: mikrotik_inventory
+
+  post_tasks:
+    - name: Сводка инвентаризации
+      ansible.builtin.debug:
+        msg: "Инвентаризация {{ inventory_hostname }} сохранена: {{ inventory_output_dir }}/{{ inventory_hostname }}.json"

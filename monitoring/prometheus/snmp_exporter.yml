@@ -1,0 +1,19 @@
+# snmp_exporter generator.yml — модуль mikrotik
+# Генерация: snmp_exporter/generator generate
+modules:
+  mikrotik:
+    walk:
+      - 1.3.6.1.2.1.1   # system
+      - 1.3.6.1.2.1.2   # interfaces
+      - 1.3.6.1.2.1.4   # ip
+      - 1.3.6.1.4.1.14988.1  # MikroTik MIB
+    version: 2
+    auth:
+      community: mikrotik-ro
+      security_level: noAuthNoPriv
+      auth_protocol: MD5
+      priv_protocol: DES
+    lookups:
+      - source_indexes: [ifIndex]
+        lookup: ifDescr
+        drop_source_indexes: false

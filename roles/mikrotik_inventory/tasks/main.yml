@@ -1,0 +1,219 @@
+---
+# roles/mikrotik_inventory/tasks/main.yml
+# Инвентаризация: собираем сырые факты и сохраняем в JSON
+
+- name: Создать директорию для фактов
+  ansible.builtin.file:
+    path: "{{ inventory_output_dir | default(playbook_dir + '/../reports/facts') }}"
+    state: directory
+    mode: "0755"
+  delegate_to: localhost
+  tags: [inventory]
+
+- name: Собрать факты — system resource
+  community.routeros.api:
+    hostname: "{{ hostname | default(api_hostname) }}"
+    username: "{{ username | default(api_username) }}"
+    password: "{{ password | default(api_password) }}"
+    port: "{{ api_port | default(8728) }}"
+    path: "system resource"
+  register: fact_resource
+  failed_when: false
+  tags: [inventory]
+
+- name: Собрать факты — system identity
+  community.routeros.api:
+    hostname: "{{ hostname | default(api_hostname) }}"
+    username: "{{ username | default(api_username) }}"
+    password: "{{ password | default(api_password) }}"
+    port: "{{ api_port | default(8728) }}"
+    path: "system identity"
+  register: fact_identity
+  failed_when: false
+  tags: [inventory]
+
+- name: Собрать факты — system clock
+  community.routeros.api:
+    hostname: "{{ hostname | default(api_hostname) }}"
+    username: "{{ username | default(api_username) }}"
+    password: "{{ password | default(api_password) }}"
+    port: "{{ api_port | default(8728) }}"
+    path: "system clock"
+  register: fact_clock
+  failed_when: false
+  tags: [inventory]
+
+- name: Собрать факты — ip address
+  community.routeros.api:
+    hostname: "{{ hostname | default(api_hostname) }}"
+    username: "{{ username | default(api_username) }}"
+    password: "{{ password | default(api_password) }}"
+    port: "{{ api_port | default(8728) }}"
+    path: "ip address"
+  register: fact_addresses
+  failed_when: false
+  tags: [inventory]
+
+- name: Собрать факты — interface
+  community.routeros.api:
+    hostname: "{{ hostname | default(api_hostname) }}"
+    username: "{{ username | default(api_username) }}"
+    password: "{{ password | default(api_password) }}"
+    port: "{{ api_port | default(8728) }}"
+    path: "interface"
+  register: fact_interfaces
+  failed_when: false
+  tags: [inventory]
+
+- name: Собрать факты — interface bridge port
+  community.routeros.api:
+    hostname: "{{ hostname | default(api_hostname) }}"
+    username: "{{ username | default(api_username) }}"
+    password: "{{ password | default(api_password) }}"
+    port: "{{ api_port | default(8728) }}"
+    path: "interface bridge port"
+  register: fact_bridge_ports
+  failed_when: false
+  tags: [inventory]
+
+- name: Собрать факты — ip route
+  community.routeros.api:
+    hostname: "{{ hostname | default(api_hostname) }}"
+    username: "{{ username | default(api_username) }}"
+    password: "{{ password | default(api_password) }}"
+    port: "{{ api_port | default(8728) }}"
+    path: "ip route"
+  register: fact_routes
+  failed_when: false
+  tags: [inventory]
+
+- name: Собрать факты — ip firewall filter
+  community.routeros.api:
+    hostname: "{{ hostname | default(api_hostname) }}"
+    username: "{{ username | default(api_username) }}"
+    password: "{{ password | default(api_password) }}"
+    port: "{{ api_port | default(8728) }}"
+    path: "ip firewall filter"
+  register: fact_fw_filter
+  failed_when: false
+  tags: [inventory]
+
+- name: Собрать факты — ip firewall nat
+  community.routeros.api:
+    hostname: "{{ hostname | default(api_hostname) }}"
+    username: "{{ username | default(api_username) }}"
+    password: "{{ password | default(api_password) }}"
+    port: "{{ api_port | default(8728) }}"
+    path: "ip firewall nat"
+  register: fact_fw_nat
+  failed_when: false
+  tags: [inventory]
+
+- name: Собрать факты — ip service
+  community.routeros.api:
+    hostname: "{{ hostname | default(api_hostname) }}"
+    username: "{{ username | default(api_username) }}"
+    password: "{{ password | default(api_password) }}"
+    port: "{{ api_port | default(8728) }}"
+    path: "ip service"
+  register: fact_services
+  failed_when: false
+  tags: [inventory]
+
+- name: Собрать факты — ip dns
+  community.routeros.api:
+    hostname: "{{ hostname | default(api_hostname) }}"
+    username: "{{ username | default(api_username) }}"
+    password: "{{ password | default(api_password) }}"
+    port: "{{ api_port | default(8728) }}"
+    path: "ip dns"
+  register: fact_dns
+  failed_when: false
+  tags: [inventory]
+
+- name: Собрать факты — ip dhcp-server
+  community.routeros.api:
+    hostname: "{{ hostname | default(api_hostname) }}"
+    username: "{{ username | default(api_username) }}"
+    password: "{{ password | default(api_password) }}"
+    port: "{{ api_port | default(8728) }}"
+    path: "ip dhcp-server"
+  register: fact_dhcp_server
+  failed_when: false
+  tags: [inventory]
+
+- name: Собрать факты — user
+  community.routeros.api:
+    hostname: "{{ hostname | default(api_hostname) }}"
+    username: "{{ username | default(api_username) }}"
+    password: "{{ password | default(api_password) }}"
+    port: "{{ api_port | default(8728) }}"
+    path: "user"
+  register: fact_users
+  failed_when: false
+  tags: [inventory]
+
+- name: Собрать факты — system ntp client
+  community.routeros.api:
+    hostname: "{{ hostname | default(api_hostname) }}"
+    username: "{{ username | default(api_username) }}"
+    password: "{{ password | default(api_password) }}"
+    port: "{{ api_port | default(8728) }}"
+    path: "system ntp client"
+  register: fact_ntp
+  failed_when: false
+  tags: [inventory]
+
+- name: Нормализовать — взять первый элемент если список
+  ansible.builtin.set_fact:
+    _res: "{{ fact_resource.msg[0] if fact_resource.msg is defined and fact_resource.msg | length > 0 else {} }}"
+    _identity: "{{ fact_identity.msg[0] if fact_identity.msg is defined and fact_identity.msg | length > 0 else {} }}"
+    _clock: "{{ fact_clock.msg[0] if fact_clock.msg is defined and fact_clock.msg | length > 0 else {} }}"
+    _ntp: "{{ fact_ntp.msg[0] if fact_ntp.msg is defined and fact_ntp.msg | length > 0 else {} }}"
+    _dns: "{{ fact_dns.msg[0] if fact_dns.msg is defined and fact_dns.msg | length > 0 else {} }}"
+  tags: [inventory]
+
+- name: Собрать все факты в единую структуру
+  ansible.builtin.set_fact:
+    mikrotik_facts:
+      meta:
+        hostname: "{{ inventory_hostname }}"
+        ansible_host: "{{ ansible_host | default(hostname) }}"
+        collected_at: "{{ ansible_date_time.iso8601 | default(lookup('pipe', 'date -Iseconds')) }}"
+        routeros_version: "{{ _res.version | default('unknown') }}"
+        board: "{{ _res['board-name'] | default('unknown') }}"
+        architecture: "{{ _res['architecture-name'] | default('') }}"
+      identity: "{{ _identity }}"
+      resource: "{{ _res }}"
+      clock: "{{ _clock }}"
+      addresses: "{{ fact_addresses.msg | default([]) }}"
+      interfaces: "{{ fact_interfaces.msg | default([]) }}"
+      bridge_ports: "{{ fact_bridge_ports.msg | default([]) }}"
+      routes: "{{ fact_routes.msg | default([]) }}"
+      firewall_filter: "{{ fact_fw_filter.msg | default([]) }}"
+      firewall_nat: "{{ fact_fw_nat.msg | default([]) }}"
+      services: "{{ fact_services.msg | default([]) }}"
+      dns: "{{ _dns }}"
+      dhcp: "{{ fact_dhcp_server.msg | default([]) }}"
+      users: "{{ fact_users.msg | default([]) }}"
+      ntp: "{{ _ntp }}"
+    cacheable: true
+  tags: [inventory]
+
+- name: Сохранить факты на контроллер (JSON)
+  ansible.builtin.copy:
+    content: "{{ mikrotik_facts | to_nice_json(indent=2) }}"
+    dest: "{{ inventory_output_dir | default(playbook_dir + '/../reports/facts') }}/{{ inventory_hostname }}.json"
+    mode: "0644"
+  delegate_to: localhost
+  tags: [inventory]
+
+- name: Краткий вывод инвентаризации
+  ansible.builtin.debug:
+    msg: |
+      [{{ inventory_hostname }}] {{ hostname | default(ansible_host) }} — {{ mikrotik_facts.meta.board }} / ROS {{ mikrotik_facts.meta.routeros_version }}
+      IP: {{ mikrotik_facts.addresses | map(attribute='address') | list | join(', ') }}
+      Bridge ports: {{ mikrotik_facts.bridge_ports | map(attribute='interface') | list | join(', ') }}
+      FW filter: {{ mikrotik_facts.firewall_filter | length }} rules, NAT: {{ mikrotik_facts.firewall_nat | length }}
+      Users: {{ mikrotik_facts.users | map(attribute='name') | list | join(', ') }}
+  tags: [inventory]

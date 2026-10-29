@@ -1,0 +1,78 @@
+# Golden config — {{ inventory_hostname }} — {{ ansible_host }}
+# Сгенерировано Ansible из {{ baseline_dir }}/{{ baseline_file_rsc }} + {{ baseline_file_yml }}
+# RouterOS 7.25 gateway: ether1 WAN 111.111.111.111, bridge1 LAN 192.168.0.50/16 (ether2-10)
+# ВНИМАНИЕ: это эталон — правится в config/baseline/, затем раскатывается на все роутеры
+
+/system identity set name={{ inventory_hostname }}
+/system clock set time-zone-name={{ timezone | default('Europe/Moscow') }}
+/system ntp client set enabled={{ 'yes' if (ntp_enabled | default(true)) else 'no' }} servers={{ ntp_servers | default(['pool.ntp.org','time.cloudflare.com']) | join(',') }}
+
+/interface bridge
+add name={{ expected.lan.bridge | default('bridge1') }} protocol-mode=rstp comment="defconf LAN bridge"
+
+{% for port in (expected.lan.ports | default(['ether2','ether3','ether4','ether5','ether6','ether7','ether8','ether9','ether10'])) %}
+/interface bridge port
+add bridge={{ expected.lan.bridge | default('bridge1') }} interface={{ port }} comment="LAN {{ port }}"
+{% endfor %}
+
+/ip address
+add address={{ expected.lan.address | default('192.168.0.50') }}/{{ expected.lan.netmask | default('16') }} interface={{ expected.lan.bridge | default('bridge1') }} comment="LAN gateway"
+add address={{ expected.wan.address | default('111.111.111.111') }}/{{ expected.wan.netmask | default('24') }} interface={{ expected.wan.interface | default('ether1') }} comment="WAN"
+
+{% if baseline_vars is defined and baseline_vars.dns is defined %}
+/ip dns set servers={{ baseline_vars.dns | join(',') }} allow-remote-requests={{ 'yes' if (dns_allow_remote_requests | default(false)) else 'no' }}
+{% else %}
+/ip dns set servers={{ dns_servers | default(['1.1.1.1','8.8.8.8']) | join(',') }} allow-remote-requests=no
+{% endif %}
+
+/ip route
+add dst-address=0.0.0.0/0 gateway={{ expected.wan.gateway | default('111.111.111.1') }} comment="default via WAN"
+
+/ip firewall filter
+add chain=input action=accept connection-state=established,related,untracked comment="defconf: accept established"
+add chain=input action=drop connection-state=invalid comment="defconf: drop invalid"
+add chain=input action=accept protocol=icmp comment="defconf: accept ICMP"
+add chain=input action=accept in-interface-list=LAN comment="defconf: accept LAN"
+add chain=input action=drop comment="defconf: drop all not LAN"
+
+add chain=forward action=accept connection-state=established,related,untracked comment="defconf: forward established"
+add chain=forward action=drop connection-state=invalid comment="defconf: drop invalid"
+add chain=forward action=accept in-interface-list=LAN out-interface-list=WAN comment="defconf: LAN to WAN"
+add chain=forward action=drop comment="defconf: drop rest"
+
+/ip firewall nat
+add chain=srcnat action=masquerade out-interface={{ expected.wan.interface | default('ether1') }} comment="defconf: masquerade"
+
+# Services — только LAN
+/ip service
+set telnet disabled=yes
+set ftp disabled=yes
+set www disabled=yes
+set api disabled=yes
+set api-ssl address={{ (tech_user_allowed_address | default('192.168.0.0/16')) }} disabled=no port=8729
+set ssh address={{ (tech_user_allowed_address | default('192.168.0.0/16')) }} disabled=no
+set winbox address={{ (tech_user_allowed_address | default('192.168.0.0/16')) }} disabled=no
+
+/ip ssh set strong-crypto=yes forwarding-enabled=no
+
+# Users — тех.учётка
+/user
+add name={{ tech_user | default('ansible') }} group={{ (tech_user_group | default('full')) }} address={{ (tech_user_allowed_address | default('192.168.0.0/16')) }} comment="{{ (tech_user_comment | default('Ansible')) }}" password="{{ (tech_user_password | default('test')) }}"
+
+# Discovery / MAC
+/ip neighbor discovery-settings set discover-interface-list=LAN
+/tool mac-server set allowed-interface-list=LAN
+/tool mac-server mac-winbox set allowed-interface-list=LAN
+
+# SNMP (если нужен мониторинг)
+/snmp set enabled={{ 'yes' if (monitoring.snmp_enabled | default(true)) else 'no' }} contact="admin@example.com" location="{{ location | default('gateway') }}"
+
+# Logging
+/system logging action
+add name=remote target=remote remote={{ (monitoring.syslog_remote | default('192.168.0.10')) }} remote-port={{ (monitoring.syslog_port | default(514)) }}
+
+# Scheduler — бэкап
+/system scheduler
+add name=backup-daily start-time=02:00 interval=1d on-event="/system backup save name=auto-backup; /export file=auto-export" comment="Ansible baseline"
+
+# Конец эталона

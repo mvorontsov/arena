@@ -1,0 +1,3 @@
+# Пример vault пароля — скопируйте в .vault_pass и chmod 600
+# или используйте: ansible-vault create .vault_pass
+demo

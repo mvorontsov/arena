@@ -1,0 +1,43 @@
+# Ansible
+*.retry
+*.log
+.vault_pass
+.vault/
+collections_installed/
+ansible_collections/
+.cache/
+reports/facts/*.json
+reports/facts/*.yml
+reports/json/*.json
+reports/prometheus/*.prom
+config/backups/*.json
+config/backups/*.rsc
+
+# Secrets
+inventory/hosts.yml
+host_vars/*.vault
+group_vars/*.vault
+.env
+*.key
+*.pem
+
+# Backups
+*.backup
+*.rsc.backup
+
+# Cache
+.pytest_cache/
+*.pyc
+__pycache__/
+.mypy_cache/
+
+# Monitoring data
+prometheus_data/
+grafana_data/
+
+# OS
+.DS_Store
+Thumbs.db
+*~
+.venv/
+venv/

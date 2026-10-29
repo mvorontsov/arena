@@ -1,0 +1,17 @@
+---
+# group_vars/mikrotik.yml — специфика группы mikrotik (шлюзы)
+# Для стенда: все задачи идут через localhost + community.routeros.api (hostname/password)
+
+# Не используем network_cli — используем API напрямую через localhost
+# ansible_connection: local уже в inventory
+
+# Эталонная версия для аудита
+routeros_version_expected: "7.25"
+routeros_channel: stable
+
+# Таймауты
+ansible_command_timeout: 30
+ansible_connect_timeout: 10
+api_port: 8728
+
+# module_defaults вынесены в playbooks для удобства

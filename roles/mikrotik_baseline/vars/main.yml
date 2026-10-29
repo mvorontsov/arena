@@ -1,0 +1,8 @@
+---
+# baseline — эталонный конфиг, хранится в config/baseline/
+baseline_dir: "config/baseline"
+baseline_file_rsc: "routeros-gateway.rsc"
+baseline_file_yml: "baseline.yml"
+baseline_backup_before: true
+baseline_apply_strategy: safe   # safe | force (safe = проверка diff + confirmation)
+baseline_rollback_on_fail: true
