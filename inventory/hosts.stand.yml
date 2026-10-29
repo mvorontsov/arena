@@ -1,0 +1,33 @@
+# Стенд (эмуляция 2 CHR из-за сетевых ограничений Arena)
+# Запуск: ./stand/start-dual.sh  → 127.0.0.1:8728/8729
+# Реальные CHR: см. docs/CHR_REAL_VM.md
+all:
+  vars:
+    ansible_connection: local
+    ansible_user: admin
+    ansible_password: "demo-only-changeme"
+    api_hostname: "127.0.0.1"
+    api_port: 8728
+    api_username: admin
+    api_password: "demo-only-changeme"
+  children:
+    mikrotik:
+      vars:
+        routeros_version_expected: "7.25"
+      hosts:
+        gw-core-01:
+          api_hostname: "127.0.0.1"
+          api_port: 8728
+          expected_wan_address: "111.111.111.111/24"
+          expected_wan_interface: "ether1"
+          expected_lan_address: "192.168.0.50/16"
+          expected_lan_interface: "bridge1"
+          expected_bridge_ports: ["ether2","ether3","ether4","ether5","ether6","ether7","ether8","ether9","ether10"]
+        gw-lab-01:
+          api_hostname: "127.0.0.1"
+          api_port: 8729
+          expected_wan_address: "111.111.111.111/24"
+          expected_wan_interface: "ether1"
+          expected_lan_address: "192.168.0.50/16"
+          expected_lan_interface: "bridge1"
+          expected_bridge_ports: ["ether2","ether3","ether4","ether5","ether6","ether7","ether8","ether9","ether10"]

@@ -17,7 +17,9 @@ ansible-playbook playbooks/03-audit.yml              # best practice → Grafana
 docker compose -f monitoring/docker-compose.monitoring.yml up -d  # Prometheus 9090, Grafana 3000 admin/admin
 ```
 
-**Стенд-проверка перед мажором:** `./scripts/check-stand.sh` (проверяет API, инвентарь, размер <128МБ, checksum)
+**Стенд-проверка перед мажором:** `./scripts/check-stand.sh` (проверяет API, инвентарь, размер <128МБ, checksum) — [CHR 7.25 — стенд из 2 CHR + тест](docs/CHR_STAND_REPORT.md)
+
+**Тестовая конфигурация:** `config/chr-test/` — 2 RSC (gw-core-01 80% + gw-lab-01 10%) + [эмуляция 2 CHR](stand/start-dual.sh) (из-за ограничений сети Arena — [реальные CHR локально](docs/CHR_REAL_VM.md))
 
 ---
 

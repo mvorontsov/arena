@@ -20,4 +20,4 @@ mikrotik_audit_check{hostname="gw-core-01",id="FW-001"} 0
 mikrotik_audit_check{hostname="gw-core-01",id="FW-004"} 0
 mikrotik_audit_check{hostname="gw-core-01",id="SYS-004"} 0
 # TYPE mikrotik_info gauge
-mikrotik_info{hostname="gw-core-01",board="CCR2116-12G-4S+",version="7.25 (stable)",location="STAND — mock RouterOS 7.25 (gateway ether1 WAN 111.111.111.111, bridge1 LAN 192.168.0.50/16)"} 1
+mikrotik_info{hostname="gw-core-01",board="CCR2116-12G-4S+",version="7.25 (stable)",location="CHR-1 gw-core-01 127.0.0.1:8728 CCR2116 7.25 bridge1 192.168.0.50/16 (эталон)"} 1

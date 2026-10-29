@@ -34,7 +34,7 @@ def encode_length(length: int) -> bytes:
         raise ValueError(f"Unable to encode length {length!r}")
 
 def encode_word(word: str, encoding: str = 'ASCII') -> bytes:
-    encoded = word.encode(encoding=encoding, errors='strict')
+    encoded = word.encode(encoding=encoding, errors='replace')
     return encode_length(len(encoded)) + encoded
 
 def encode_sentence(*words: str, encoding: str = 'ASCII') -> bytes:
@@ -260,19 +260,63 @@ MOCK_DATA = {
     ],
 }
 
-# Для второго хоста (gw-lab-01) — почти идентично, но с другими IP для теста раскатки
+# Для второго хоста (gw-lab-01) — намеренно сломанный для теста baseline/аудита
 MOCK_DATA_GW_LAB = {
     **MOCK_DATA,
     "/system/identity/print": [{".id": "*1", "name": "gw-lab-01"}],
+    "/system/clock/print": [{".id": "*1", "time": "10:30:00", "date": "2026-10-29", "time-zone-name": "UTC", "gmt-offset": "+00:00", "dst-active": "no"}],
+    "/system/ntp/client/print": [{".id": "*1", "enabled": "no", "mode": "unicast", "servers": "", "status": "stopped"}],
+    "/system/resource/print": [{
+            ".id": "*1",
+            "board-name": "CHR",
+            "version": "7.18 (stable)",
+            "build-time": "2025-01-10 10:00:00",
+            "factory-software": "7.18",
+            "total-memory": "536870912",
+            "free-memory": "400000000",
+            "cpu": "QEMU",
+            "cpu-count": "2",
+            "cpu-load": "45",
+            "free-hdd-space": "100000000",
+            "total-hdd-space": "134217728",
+            "uptime": "1d02:00:00",
+            "write-sect-since-reboot": "1000",
+            "write-sect-total": "5000",
+        }],
     "/ip/address/print": [
-        {".id": "*1", "address": "192.168.88.1/24", "network": "192.168.88.0", "interface": "bridge1", "actual-interface": "bridge1", "disabled": "false"},
-        {".id": "*2", "address": "111.111.111.112/24", "network": "111.111.111.0", "interface": "ether1", "actual-interface": "ether1", "disabled": "false"},
+        {".id": "*1", "address": "192.168.88.1/24", "network": "192.168.88.0", "interface": "bridge1", "actual-interface": "bridge1", "disabled": "false", "comment": "WRONG LAN"},
+        {".id": "*2", "address": "111.111.111.112/24", "network": "111.111.111.0", "interface": "ether1", "actual-interface": "ether1", "disabled": "false", "comment": "WAN lab"},
+    ],
+    "/interface/bridge/port/print": [
+        {".id": "*1", "interface": "ether2", "bridge": "bridge1", "priority": "0x80", "path-cost": "10", "disabled": "false"},
+        {".id": "*2", "interface": "ether3", "bridge": "bridge1", "priority": "0x80", "path-cost": "10", "disabled": "false"},
+        {".id": "*3", "interface": "ether4", "bridge": "bridge1", "priority": "0x80", "path-cost": "10", "disabled": "false"},
+    ],
+    "/ip/firewall/filter/print": [
+        {".id": "*1", "chain": "input", "action": "accept", "protocol": "icmp", "comment": "accept ICMP — одиноко"},
+        {".id": "*2", "chain": "input", "action": "drop", "comment": "drop all — без established!"},
+    ],
+    "/ip/service/print": [
+        {".id": "*1", "name": "telnet", "port": "23", "address": "", "disabled": "false"},
+        {".id": "*2", "name": "ftp", "port": "21", "address": "", "disabled": "false"},
+        {".id": "*3", "name": "www", "port": "80", "address": "", "disabled": "false"},
+        {".id": "*4", "name": "ssh", "port": "22", "address": "", "disabled": "false"},
+        {".id": "*5", "name": "www-ssl", "port": "443", "address": "", "disabled": "true"},
+        {".id": "*6", "name": "api", "port": "8728", "address": "", "disabled": "false"},
+        {".id": "*7", "name": "winbox", "port": "8291", "address": "", "disabled": "false"},
+        {".id": "*8", "name": "api-ssl", "port": "8729", "address": "", "disabled": "true"},
+    ],
+    "/user/print": [
+        {".id": "*1", "name": "admin", "group": "full", "address": "", "last-logged-in": "2026-10-29 10:00:00", "comment": ""},
     ],
 }
 
-def get_mock_data(command: str, hostname: str = "gw-core-01"):
-    # Выбираем данные по хосту (если gw-lab, то lab-мок)
-    data_map = MOCK_DATA_GW_LAB if "lab" in hostname.lower() else MOCK_DATA
+def get_mock_data(command: str, hostname: str = "gw-core-01", port: int = 8728):
+    # Выбираем данные по порту: 8729 = lab (сломанный), 8728 = core (эталон)
+    if port == 8729:
+        data_map = MOCK_DATA_GW_LAB
+    else:
+        data_map = MOCK_DATA_GW_LAB if "lab" in hostname.lower() else MOCK_DATA
     # Прямое совпадение
     if command in data_map:
         return data_map[command]
@@ -285,7 +329,7 @@ def get_mock_data(command: str, hostname: str = "gw-core-01"):
     # Для неизвестных — пусто, но не ошибка
     return []
 
-def handle_client(conn, addr):
+def handle_client(conn, addr, server_port=8728):
     encoding = 'ASCII'
     print(f"[mock] new connection from {addr}")
     peer_host = "gw-core-01"  # можно определить по времени или по login user?
@@ -325,7 +369,7 @@ def handle_client(conn, addr):
             # sentence may include query params already? But simple print handling
             # For community.routeros.api with path, it may send just path without print? Let's handle both
             # Use first word as command path
-            data = get_mock_data(cmd, peer_host)
+            data = get_mock_data(cmd, peer_host, server_port)
             if data is not None:
                 # Возможно, клиент ожидает выборку через select — но наш мок просто возвращает все
                 for row in data:
@@ -367,7 +411,7 @@ def start_server(host="0.0.0.0", port=8728):
     print(f"[mock] Mock data: {list(MOCK_DATA.keys())[:5]} ... total {len(MOCK_DATA)} paths")
     while True:
         conn, addr = srv.accept()
-        t = threading.Thread(target=handle_client, args=(conn, addr), daemon=True)
+        t = threading.Thread(target=handle_client, args=(conn, addr, port), daemon=True)
         t.start()
 
 if __name__ == "__main__":
