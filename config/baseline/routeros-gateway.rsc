@@ -30,7 +30,7 @@
 /ip dns set servers=1.1.1.1,8.8.8.8 allow-remote-requests=no cache-size=2048KiB
 
 # === DHCP (опционально, для LAN) ===
-/ip pool add name=lan-pool ranges=192.168.100.100-192.168.200.100 comment="LAN pool"
+/ip pool add name=lan-pool ranges=192.168.0.100-192.168.0.200 comment="LAN pool"
 /ip dhcp-server add name=lan-dhcp interface=bridge1 address-pool=lan-pool lease-time=1d disabled=no comment="LAN DHCP"
 /ip dhcp-server network add address=192.168.0.0/16 gateway=192.168.0.50 dns-server=1.1.1.1,8.8.8.8 domain=lan
 
