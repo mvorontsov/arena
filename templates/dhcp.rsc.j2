@@ -1,0 +1,14 @@
+# DHCP — {{ inventory_hostname }}
+/ip pool
+remove [find name=pool-{{ vlan_id | default(10) }}]
+add name=pool-{{ vlan_id | default(10) }} ranges=192.168.{{ vlan_id | default(10) }}.100-192.168.{{ vlan_id | default(10) }}.200
+
+/ip dhcp-server
+remove [find name=dhcp-{{ vlan_id | default(10) }}]
+add name=dhcp-{{ vlan_id | default(10) }} interface=vlan{{ vlan_id | default(10) }} address-pool=pool-{{ vlan_id | default(10) }} lease-time=1h disabled=no comment="rosctl dhcp"
+
+/ip dhcp-server network
+remove [find address="192.168.{{ vlan_id | default(10) }}.0/24"]
+add address=192.168.{{ vlan_id | default(10) }}.0/24 gateway=192.168.{{ vlan_id | default(10) }}.1 dns-server={{ dns_primary | default('1.1.1.1') }},{{ dns_secondary | default('8.8.8.8') }} domain={{ domain | default('local') }}
+
+/ip dns set allow-remote-requests=yes

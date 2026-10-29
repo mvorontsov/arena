@@ -1,0 +1,71 @@
+# inventory.example.yml — пример инвентаря для rosctl
+# Документация: rosctl inventory --help
+
+defaults:
+  username: admin
+  password: changeme
+  api_ssl: false
+  timeout: 10
+
+groups:
+  edge:
+    vars:
+      dns_primary: 1.1.1.1
+      dns_secondary: 8.8.8.8
+      ntp: pool.ntp.org
+    comment: Пограничные роутеры / GW
+  branch:
+    vars:
+      capsman: 10.0.0.1
+      vlan_id: 10
+    comment: Филиалы
+  lab:
+    vars: {}
+    comment: Лаборатория и тесты
+
+hosts:
+  - name: gw-msk-01
+    host: 10.10.0.1
+    group: edge
+    tags: [msk, prod, gw]
+    comment: GW Москва — CCR2116
+    vars:
+      wg_address: 10.255.0.1/24
+
+  - name: gw-spb-01
+    host: 10.10.0.2
+    group: edge
+    tags: [spb, prod, gw]
+
+  - name: gw-ekb-01
+    host: 10.10.0.3
+    group: edge
+    tags: [ekb, prod]
+
+  - name: branch-msk-11
+    host: 10.20.11.1
+    group: branch
+    tags: [retail, msk]
+    vars:
+      vlan_id: 11
+
+  - name: branch-spb-12
+    host: 10.20.12.1
+    group: branch
+    tags: [retail, spb]
+
+  - name: lab-hap-ax3
+    host: 192.168.88.1
+    group: lab
+    tags: [lab, wifi6, capsman]
+    comment: Лаборатория — hAP ax3
+
+  - name: lab-chateau
+    host: 192.168.88.2
+    group: lab
+    tags: [lab, 5g]
+
+  - name: office-core
+    host: 10.30.0.1
+    group: branch
+    tags: [office]

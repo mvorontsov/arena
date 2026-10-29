@@ -1,0 +1,45 @@
+name: VLAN + Bridge
+description: Настраивает VLAN, bridge и DHCP для филиалов
+
+plays:
+  - name: VLAN для филиалов
+    hosts: branch
+    vars:
+      bridge_name: bridge1
+      vlan_id: "{{ vlan_id | default(10) }}"
+    strategy: rolling
+    parallel: 5
+    tasks:
+      - name: Создать VLAN
+        command: /interface vlan add name=vlan{{ vlan_id }} vlan-id={{ vlan_id }} interface={{ bridge_name }} comment="managed by rosctl"
+        tags: [vlan]
+
+      - name: Добавить IP на VLAN
+        command: /ip address add address=192.168.{{ vlan_id }}.1/24 interface=vlan{{ vlan_id }} comment="vlan{{ vlan_id }}"
+        tags: [vlan, ip]
+
+      - name: DHCP пул
+        command: /ip pool add name=pool-vlan{{ vlan_id }} ranges=192.168.{{ vlan_id }}.100-192.168.{{ vlan_id }}.200
+        tags: [dhcp]
+
+      - name: DHCP сервер
+        command: /ip dhcp-server add name=dhcp-vlan{{ vlan_id }} interface=vlan{{ vlan_id }} address-pool=pool-vlan{{ vlan_id }} lease-time=1h
+        tags: [dhcp]
+
+      - name: Проверка интерфейсов
+        command: /interface/print where type=vlan
+        tags: [info]
+
+  - name: WiFi CAPsMAN (lab)
+    hosts: lab
+    tasks:
+      - name: CAPsMAN статус
+        command: /interface/wifi/capsman/remote-cap/print
+        tags: [capsman, wifi]
+
+      - name: Создать SSID (шаблон)
+        template: capsman.rsc.j2
+        vars:
+          ssid: "Retail-{{ group | upper }}-{{ vlan_id }}"
+          band: "5ghz-ax"
+        tags: [capsman]
