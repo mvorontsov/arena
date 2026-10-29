@@ -1,23 +1,17 @@
 ---
 # group_vars/mikrotik.yml — специфика группы mikrotik (шлюзы)
+# Для стенда: все задачи идут через localhost + community.routeros.api (hostname/password)
 
-# Переопределяем подключения для RouterOS API
-ansible_connection: community.routeros.api
-ansible_api_transport: api          # api | rest | api-ssl (зависит от версии коллекции)
-ansible_api_use_ssl: false
-ansible_api_validate_certs: false
-ansible_port: 8728                 # для api-ssl → 8729
-
-# RouterOS 7.25+ — используем API, fallback на SSH при необходимости
-ansible_ssh_common_args: "-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
+# Не используем network_cli — используем API напрямую через localhost
+# ansible_connection: local уже в inventory
 
 # Эталонная версия для аудита
 routeros_version_expected: "7.25"
-routeros_channel: stable           # stable | testing | long-term
+routeros_channel: stable
 
 # Таймауты
 ansible_command_timeout: 30
 ansible_connect_timeout: 10
+api_port: 8728
 
-# Факты — собираем через community.routeros.facts + api_find/api_modify
-collect_facts: true
+# module_defaults вынесены в playbooks для удобства

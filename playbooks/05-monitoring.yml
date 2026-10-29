@@ -20,7 +20,7 @@
   tags: [monitoring, stack]
 
   vars:
-    monitoring_stack_dir: "./monitoring"
+    monitoring_stack_dir: "{{ playbook_dir }}/../monitoring"
 
   tasks:
     - name: Проверить docker-compose для мониторинга

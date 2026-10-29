@@ -1,13 +1,56 @@
 {
-  "hostname": "gw-core-01",
-  "ansible_host": "192.168.0.50",
-  "timestamp": "2026-10-29T10:30:00+03:00",
-  "routeros_version": "7.25 (stable)",
-  "board": "CCR2116",
-  "compliance": { "total": 24, "passed": 18, "failed": 6, "pct": 75.0, "critical": 1, "high": 2, "medium": 2, "low": 1 },
+  "ansible_host": "127.0.0.1",
+  "board": "CCR2116-12G-4S+",
+  "compliance": {
+    "critical": 0,
+    "failed": 2,
+    "high": 2,
+    "low": 0,
+    "medium": 0,
+    "passed": 8,
+    "pct": 80.0,
+    "total": 10
+  },
   "findings": [
-    {"id":"NET-001","category":"network","title":"WAN ether1 111.111.111.111","severity":"critical","status":"fail","current":"192.168.0.0/24","expected":"111.111.111.111 on ether1","remediation":"/ip address add address=111.111.111.111/24 interface=ether1"},
-    {"id":"FW-001","category":"firewall","title":"Firewall input accept established","severity":"critical","status":"fail","current":"0 rules","expected":"chain=input action=accept connection-state=established,related","remediation":"/ip firewall filter add chain=input action=accept connection-state=established,related"}
+    {
+      "category": "users",
+      "current": [
+        "admin"
+      ],
+      "expected": "ansible group=full address=192.168.0.0/16",
+      "id": "USR-001",
+      "remediation": "/user add name=ansible group=full address=192.168.0.0/16 password=***",
+      "severity": "high",
+      "status": "fail",
+      "title": "\u0422\u0435\u0445.\u0443\u0447\u0451\u0442\u043a\u0430 ansible \u0441\u0443\u0449\u0435\u0441\u0442\u0432\u0443\u0435\u0442"
+    },
+    {
+      "category": "services",
+      "current": "['telnet', 'ftp', 'www', 'ssh', 'www-ssl', 'api', 'winbox', 'api-ssl'] \u2192 ['telnet', 'ssh', 'api', 'winbox', 'api-ssl'] enabled",
+      "expected": "telnet, ftp, www, api disabled",
+      "id": "SVC-001",
+      "remediation": "/ip service disable telnet,ftp,www,api",
+      "severity": "high",
+      "status": "fail",
+      "title": "\u041e\u0442\u043a\u043b\u044e\u0447\u0435\u043d\u044b telnet, ftp, www, api"
+    }
   ],
-  "passed_ids": ["SYS-002","USR-001"]
+  "hostname": "gw-core-01",
+  "meta": {
+    "lan_bridge": "bridge1",
+    "location": "STAND \u2014 mock RouterOS 7.25 (gateway ether1 WAN 111.111.111.111, bridge1 LAN 192.168.0.50/16)",
+    "wan_if": "ether1"
+  },
+  "passed_ids": [
+    "SYS-001",
+    "SYS-002",
+    "NET-001",
+    "NET-002",
+    "NET-002-b",
+    "FW-001",
+    "FW-004",
+    "SYS-004"
+  ],
+  "routeros_version": "7.25 (stable)",
+  "timestamp": "2026-10-29T08:27:34Z"
 }

@@ -15,9 +15,9 @@
     state: directory
     mode: "0755"
   loop:
-    - "{{ audit_output_dir | default('./reports') }}"
-    - "{{ audit_output_dir | default('./reports') }}/json"
-    - "{{ audit_output_dir | default('./reports') }}/prometheus"
+    - "{{ audit_output_dir | default(playbook_dir + '/../reports') }}"
+    - "{{ audit_output_dir | default(playbook_dir + '/../reports') }}/json"
+    - "{{ audit_output_dir | default(playbook_dir + '/../reports') }}/prometheus"
   delegate_to: localhost
   run_once: false
   tags: [audit]
@@ -29,19 +29,28 @@
     audit_score: 0
   tags: [audit]
 
+- name: Загрузить факты из файла если mikrotik_facts не определены
+  ansible.builtin.slurp:
+    src: "{{ audit_output_dir | default(playbook_dir + '/../reports') }}/facts/{{ inventory_hostname }}.json"
+  register: _audit_facts_raw
+  delegate_to: localhost
+  when: mikrotik_facts is not defined or mikrotik_facts.addresses is not defined or mikrotik_facts.addresses is string
+  failed_when: false
+  tags: [audit]
+
+- name: Установить mikrotik_facts из файла
+  ansible.builtin.set_fact:
+    mikrotik_facts: "{{ _audit_facts_raw.content | b64decode | from_json }}"
+  when: _audit_facts_raw is defined and _audit_facts_raw.content is defined
+  tags: [audit]
+
 # --- Проверки (логика вынесена в library/mikrotik_audit.py для читаемости, здесь — упрощённые примеры) ---
 # Для каждой категории делаем реальные проверки через API-факты.
 # Ниже — примерные проверки, покрывающие критичный функционал шлюза.
 
 - name: "[SYS] Проверка NTP"
   ansible.builtin.set_fact:
-    _ntp_ok: >-
-      {{
-        mikrotik_facts.ntp is defined and
-        mikrotik_facts.ntp.enabled | default(false) | bool and
-        (ntp_servers[0] in (mikrotik_facts.ntp.servers | default('')) or
-         'pool.ntp.org' in (mikrotik_facts.ntp['servers'] | default('') | string))
-      }}
+    _ntp_ok: "{{ mikrotik_facts.ntp.enabled | default(false) | bool and 'pool.ntp.org' in (mikrotik_facts.ntp.servers | default('') | string) }}"
   tags: [audit, system]
 
 - name: Зафиксировать NTP результат
@@ -56,13 +65,13 @@
       severity: high
       status: "{{ 'pass' if _ntp_ok else 'fail' }}"
       current: "{{ mikrotik_facts.ntp | default({}) }}"
-      expected: "enabled=yes servers={{ ntp_servers | join(',') }}"
-      remediation: "/system ntp client set enabled=yes servers={{ ntp_servers | join(',') }}"
+      expected: "enabled=yes servers={{ ntp_servers | default(['pool.ntp.org','time.cloudflare.com']) | join(',') }}"
+      remediation: "/system ntp client set enabled=yes servers={{ ntp_servers | default(['pool.ntp.org','time.cloudflare.com']) | join(',') }}"
   tags: [audit]
 
 - name: "[SYS] Проверка timezone"
   ansible.builtin.set_fact:
-    _tz_ok: "{{ mikrotik_facts.clock['time-zone-name'] | default('') == timezone }}"
+    _tz_ok: "{{ mikrotik_facts.clock['time-zone-name'] | default('') == (timezone | default('Europe/Moscow')) }}"
   tags: [audit]
 
 - name: Зафиксировать timezone
@@ -73,17 +82,17 @@
     finding:
       id: "SYS-002"
       category: system
-      title: "Часовой пояс {{ timezone }}"
+      title: "Часовой пояс {{ timezone | default('Europe/Moscow') }}"
       severity: medium
       status: "{{ 'pass' if _tz_ok else 'fail' }}"
       current: "{{ mikrotik_facts.clock['time-zone-name'] | default('unknown') }}"
-      expected: "{{ timezone }}"
-      remediation: "/system clock set time-zone-name={{ timezone }}"
+      expected: "{{ timezone | default('Europe/Moscow') }}"
+      remediation: "/system clock set time-zone-name={{ timezone | default('Europe/Moscow') }}"
   tags: [audit]
 
 - name: "[NET] Проверка WAN ether1"
   ansible.builtin.set_fact:
-    _wan_ok: "{{ mikrotik_facts.addresses | selectattr('interface', 'equalto', gateway_wan_if) | selectattr('address', 'search', '111\\.111\\.111\\.111') | list | length > 0 }}"
+    _wan_ok: "{{ mikrotik_facts.addresses | default([]) | selectattr('interface', 'equalto', (gateway_wan_if | default('ether1'))) | selectattr('address', 'search', '111\\.111\\.111\\.111') | list | length > 0 }}"
   tags: [audit, network]
 
 - name: Зафиксировать WAN
@@ -98,13 +107,13 @@
       severity: critical
       status: "{{ 'pass' if _wan_ok else 'fail' }}"
       current: "{{ mikrotik_facts.addresses | map(attribute='address') | list }}"
-      expected: "111.111.111.111 on {{ gateway_wan_if }}"
-      remediation: "/ip address add address=111.111.111.111/24 interface={{ gateway_wan_if }}"
+      expected: "111.111.111.111 on {{ gateway_wan_if | default('ether1') }}"
+      remediation: "/ip address add address=111.111.111.111/24 interface={{ gateway_wan_if | default('ether1') }}"
   tags: [audit]
 
 - name: "[NET] Проверка LAN bridge1"
   ansible.builtin.set_fact:
-    _lan_ok: "{{ mikrotik_facts.addresses | selectattr('interface', 'equalto', gateway_lan_bridge) | selectattr('address', 'search', '192\\.168\\.0\\.50') | list | length > 0 }}"
+    _lan_ok: "{{ mikrotik_facts.addresses | default([]) | selectattr('interface', 'equalto', (gateway_lan_bridge | default('bridge1'))) | selectattr('address', 'search', '192\\.168\\.0\\.50') | list | length > 0 }}"
   tags: [audit, network]
 
 - name: Зафиксировать LAN
@@ -119,13 +128,13 @@
       severity: critical
       status: "{{ 'pass' if _lan_ok else 'fail' }}"
       current: "{{ mikrotik_facts.addresses | map(attribute='address') | list }}"
-      expected: "192.168.0.50/16 on {{ gateway_lan_bridge }} (ports {{ expected.lan.ports | join(',') }})"
+      expected: "192.168.0.50/16 on {{ gateway_lan_bridge | default('bridge1') }} (ports {{ (expected.lan.ports | default(['ether2','ether3','ether4','ether5','ether6','ether7','ether8','ether9','ether10'])) | join(',') }})"
       remediation: "/ip address add address=192.168.0.50/16 interface=bridge1"
   tags: [audit]
 
 - name: "[NET] Проверка bridge ports ether2-10"
   ansible.builtin.set_fact:
-    _bp_ok: "{{ mikrotik_facts.bridge_ports | map(attribute='interface') | sort | list == expected.lan.ports | sort | list }}"
+    _bp_ok: "{{ mikrotik_facts.bridge_ports | map(attribute='interface') | sort | list == (expected.lan.ports | default(['ether2','ether3','ether4','ether5','ether6','ether7','ether8','ether9','ether10'])) | sort | list }}"
   when: mikrotik_facts.bridge_ports is defined
   tags: [audit]
 
@@ -141,14 +150,14 @@
       severity: critical
       status: "{{ 'pass' if _bp_ok else 'fail' }}"
       current: "{{ mikrotik_facts.bridge_ports | map(attribute='interface') | list }}"
-      expected: "{{ expected.lan.ports }}"
+      expected: "{{ (expected.lan.ports | default(['ether2','ether3','ether4','ether5','ether6','ether7','ether8','ether9','ether10'])) }}"
       remediation: "Для каждого порта: /interface bridge port add bridge=bridge1 interface=etherX"
   when: _bp_ok is defined
   tags: [audit]
 
 - name: "[USR] Проверка тех.учётки"
   ansible.builtin.set_fact:
-    _tech_ok: "{{ mikrotik_facts.users | selectattr('name', 'equalto', tech_user) | list | length > 0 }}"
+    _tech_ok: "{{ mikrotik_facts.users | selectattr('name', 'equalto', tech_user | default('ansible')) | list | length > 0 }}"
   tags: [audit, users]
 
 - name: Зафиксировать тех.учётку
@@ -159,12 +168,12 @@
     finding:
       id: "USR-001"
       category: users
-      title: "Тех.учётка {{ tech_user }} существует"
+      title: "Тех.учётка {{ tech_user | default('ansible') }} существует"
       severity: high
       status: "{{ 'pass' if _tech_ok else 'fail' }}"
       current: "{{ mikrotik_facts.users | map(attribute='name') | list }}"
-      expected: "{{ tech_user }} group=full address={{ tech_user_allowed_address }}"
-      remediation: "/user add name={{ tech_user }} group=full address={{ tech_user_allowed_address }} password=***"
+      expected: "{{ tech_user | default('ansible') }} group=full address={{ tech_user_allowed_address | default('192.168.0.0/16') }}"
+      remediation: "/user add name={{ tech_user | default('ansible') }} group=full address={{ tech_user_allowed_address | default('192.168.0.0/16') }} password=***"
   tags: [audit]
 
 - name: "[SVC] Проверка отключённых сервисов"
@@ -196,7 +205,7 @@
 
 - name: "[FW] Проверка firewall input established"
   ansible.builtin.set_fact:
-    _fw_est_ok: "{{ mikrotik_facts.firewall_filter | selectattr('chain', 'equalto', 'input') | selectattr('connection-state', 'search', 'established') | list | length > 0 }}"
+    _fw_est_ok: "{{ mikrotik_facts.firewall_filter | selectattr('chain', 'equalto', 'input') | map(attribute='connection-state', default='') | select('search', 'established') | list | length > 0 }}"
   when: mikrotik_facts.firewall_filter is defined
   tags: [audit, firewall]
 
@@ -267,7 +276,7 @@
   ansible.builtin.set_fact:
     audit_total: "{{ audit_findings | length + audit_passed | length }}"
     audit_failed: "{{ audit_findings | length }}"
-    audit_compliance_pct: "{{ ((audit_passed | length) / ((audit_findings | length + audit_passed | length) | max(1)) * 100) | round(1) }}"
+    audit_compliance_pct: "{{ ((audit_passed | length) / ([audit_findings | length + audit_passed | length, 1] | max) * 100) | round(1) }}"
   tags: [audit]
 
 - name: Определить severity счётчики
@@ -298,15 +307,15 @@
       findings: "{{ audit_findings }}"
       passed_ids: "{{ audit_passed }}"
       meta:
-        lan_bridge: "{{ gateway_lan_bridge }}"
-        wan_if: "{{ gateway_wan_if }}"
+        lan_bridge: "{{ gateway_lan_bridge | default('bridge1') }}"
+        wan_if: "{{ gateway_wan_if | default('ether1') }}"
         location: "{{ location | default('') }}"
   tags: [audit]
 
 - name: Сохранить JSON-отчёт на контроллер
   ansible.builtin.copy:
     content: "{{ audit_report | to_nice_json(indent=2) }}"
-    dest: "{{ audit_output_dir }}/json/{{ inventory_hostname }}.audit.json"
+    dest: "{{ audit_output_dir | default(playbook_dir + '/../reports') }}/json/{{ inventory_hostname }}.audit.json"
     mode: "0644"
   delegate_to: localhost
   tags: [audit]
@@ -314,7 +323,7 @@
 - name: Сохранить Prometheus exposition формат (для Pushgateway)
   ansible.builtin.template:
     src: prometheus.prom.j2
-    dest: "{{ audit_output_dir }}/prometheus/{{ inventory_hostname }}.prom"
+    dest: "{{ audit_output_dir | default(playbook_dir + '/../reports') }}/prometheus/{{ inventory_hostname }}.prom"
     mode: "0644"
   delegate_to: localhost
   tags: [audit]
@@ -323,7 +332,7 @@
   ansible.builtin.uri:
     url: "{{ audit_prometheus_pushgateway }}/metrics/job/mikrotik_audit/instance/{{ inventory_hostname }}"
     method: POST
-    body: "{{ lookup('file', audit_output_dir + '/prometheus/' + inventory_hostname + '.prom') }}"
+    body: "{{ lookup('file', (audit_output_dir | default(playbook_dir + '/../reports')) + '/prometheus/' + inventory_hostname + '.prom') }}"
     status_code: [200, 202]
     timeout: 5
   delegate_to: localhost

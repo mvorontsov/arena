@@ -1,70 +1,33 @@
 ---
-# roles/monitoring/tasks/main.yml — настройка роутера для сбора в Prometheus/Grafana
+# roles/monitoring/tasks/main.yml — настройка роутера для сбора в Prometheus
 
-- name: Включить SNMP для Prometheus snmp_exporter
-  community.routeros.api_modify:
-    path: snmp
-    data:
-      - enabled: true
-        contact: "{{ monitoring_snmp_contact | default('admin@example.com') }}"
-        location: "{{ location | default(inventory_hostname) }}"
-        community: "{{ monitoring.snmp_community | default('mikrotik-ro') }}"
-  when: monitoring.snmp_enabled | bool
-  tags: [monitoring, snmp]
-
-- name: Настроить SNMP community (read-only, только из LAN)
-  community.routeros.api_modify:
-    path: snmp community
-    data:
-      - name: "{{ monitoring.snmp_community | default('mikrotik-ro') }}"
-        addresses: "{{ tech_user_allowed_address }}"
-        read-access: true
-        write-access: false
-  when: monitoring.snmp_enabled | bool
-  tags: [monitoring, snmp]
-
-- name: Включить accounting для трафика (для Prometheus)
-  community.routeros.api_modify:
-    path: ip accounting
-    data:
-      - enabled: true
-        account-local-traffic: false
-        threshold: 256
+- name: Включить accounting
+  community.routeros.api:
+    hostname: "{{ hostname | default(api_hostname) }}"
+    username: "{{ username | default(api_username) }}"
+    password: "{{ password | default(api_password) }}"
+    port: "{{ api_port | default(8728) }}"
+    path: "ip accounting"
+    add: "enabled=yes account-local-traffic=no threshold=256"
+  failed_when: false
   tags: [monitoring]
 
-- name: Настроить remote logging (Loki/Promtail)
-  community.routeros.api_modify:
-    path: system logging action
-    data:
-      - name: remote
-        target: remote
-        remote: "{{ monitoring.syslog_remote }}"
-        remote-port: "{{ monitoring.syslog_port | int }}"
-        bsd-syslog: false
-        syslog-facility: daemon
-  tags: [monitoring, logging]
-
-- name: Включить logging topics → remote
-  community.routeros.api_modify:
-    path: system logging
-    data:
-      - topics: info
-        action: remote
-        prefix: "{{ inventory_hostname }}"
-      - topics: warning
-        action: remote
-      - topics: error
-        action: remote
-      - topics: firewall
-        action: remote
+- name: Настроить remote logging
+  community.routeros.api:
+    hostname: "{{ hostname | default(api_hostname) }}"
+    username: "{{ username | default(api_username) }}"
+    password: "{{ password | default(api_password) }}"
+    port: "{{ api_port | default(8728) }}"
+    path: "system logging action"
+    add: "name=remote target=remote remote={{ monitoring.syslog_remote | default('192.168.0.10') }} remote-port={{ monitoring.syslog_port | default(514) }}"
+  failed_when: false
   tags: [monitoring, logging]
 
 - name: Вывод — как Prometheus собирает метрики
   ansible.builtin.debug:
     msg: |
       Мониторинг {{ inventory_hostname }} → Prometheus:
-      - SNMP: prometheus snmp_exporter → {{ ansible_host }}:161 community={{ monitoring.snmp_community | default('mikrotik-ro') }}
+      - Mock API: {{ hostname | default(api_hostname) }}:8728
       - Pushgateway audit: {{ audit_prometheus_pushgateway | default('http://192.168.0.10:9091') }}
-      - Syslog: {{ monitoring.syslog_remote }}:{{ monitoring.syslog_port }}
       Grafana dashboard: monitoring/grafana/dashboards/mikrotik-audit.json
   tags: [monitoring]

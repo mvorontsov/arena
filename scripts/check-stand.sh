@@ -10,7 +10,7 @@ echo "Inventory: $(cat inventory/hosts.yml | grep ansible_host || true)"
 
 # 1. Проверка API
 echo -e "\n[1/5] Проверка API 192.168.0.50:8728..."
-if ansible mikrotik -m community.routeros.api_find -a "path=system resource" -i inventory/hosts.yml --limit gw-core-01 2>&1 | head -n 20; then
+if ansible mikrotik -m community.routeros.api -a "path='/system resource' print" -i inventory/hosts.yml --limit gw-core-01 2>&1 | head -n 20; then
   echo "✓ API OK"
 else
   echo "✗ API FAIL — проверьте /ip service print, firewall, LAN 192.168.0.0/16, стенд"

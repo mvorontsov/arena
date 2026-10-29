@@ -1,63 +1,33 @@
 ---
-# inventory/hosts.example.yml — пример инвентаря
-# Скопируйте в hosts.yml и заполните пароли (или используйте vault)
-# Хост Ansible — Debian 13 в сети 192.168.0.0/16, сам роутер-шлюз — 192.168.0.50
+# inventory/hosts.example.yml — пример для ПРОДА (192.168.0.0/16 LAN)
+# Скопируйте в hosts.yml и заполните реальные пароли (vault)
 
 all:
   vars:
-    # Глобальные переменные для всех роутеров
-    ansible_connection: community.routeros.api
-    ansible_network_os: community.routeros.routeros
+    ansible_connection: local
     ansible_user: admin
-    # Пароль храните в vault: ansible-vault encrypt_string 'your_pass' --name ansible_password
     ansible_password: "{{ vault_mikrotik_password | default('changeme') }}"
-    ansible_port: 8728          # API (8728 без TLS, 8729 с TLS)
-    ansible_api_use_ssl: false
-    ansible_api_validate_certs: false
-    ansible_api_validate_cert_hostname: false
+    api_hostname: "192.168.0.50"
+    api_port: 8728
 
   children:
     mikrotik:
       vars:
-        # Группа для аудита и baseline
         routeros_version_expected: "7.25"
         gateway_lan_cidr: "192.168.0.0/16"
         gateway_lan_ip: "192.168.0.50/16"
         gateway_lan_bridge: "bridge1"
         gateway_wan_if: "ether1"
-        gateway_wan_ip: "111.111.111.111/32"  # пример, замените на реальный WAN IP маску
+        gateway_wan_ip: "111.111.111.111/24"
       hosts:
-        # === ГРУППА ШЛЮЗОВ ===
-        # Основной шлюз — Интернет (ether1) ↔ LAN (bridge1: ether2-10)
         gw-core-01:
           ansible_host: 192.168.0.50
-          # WAN для справки (проверяется в аудите, не для подключения)
+          hostname: 192.168.0.50
           wan_address: 111.111.111.111
           wan_interface: ether1
           lan_bridge: bridge1
           lan_ports: [ether2, ether3, ether4, ether5, ether6, ether7, ether8, ether9, ether10]
-          location: "Moscow DC — rack A1"
+          location: "Moscow DC — rack A1 — WAN ether1 111.111.111.111, LAN bridge1 192.168.0.50/16"
           role: gateway
-          # Переопределение учётки (после bootstrap будет ansible)
-          # ansible_user: ansible
-          # ansible_password: "{{ vault_ansible_password }}"
-
-        # Примеры для масштабирования (закомментировать, если один роутер)
-        # gw-spb-01:
-        #   ansible_host: 192.168.10.1
-        #   wan_address: 222.222.222.222
-        #   wan_interface: ether1
-        #   lan_bridge: bridge1
-        #   location: "SPb Branch"
-
-        # gw-lab-01:
-        #   ansible_host: 192.168.88.1
-        #   wan_interface: ether1
-        #   lab: true
-
-    # Отдельная группа для мониторинга (чтобы не смешивать)
-    # monitoring:
-    #   hosts:
-    #     prometheus:
-    #       ansible_host: 192.168.0.10
-    #       ansible_connection: ssh
+          username: admin
+          password: "{{ vault_mikrotik_password | default('changeme') }}"
