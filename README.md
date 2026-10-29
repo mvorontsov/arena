@@ -54,6 +54,9 @@ scripts/journal.sh          # п.6: запись в журнал с timestamp+sh
 ERROR_JOURNAL.md            # журнал ошибок (обязателен)
 STAND_CHECK.md              # протокол стенда
 docs/best_practices.md      # описание 24 правил
+docs/DEPLOYMENT.md          # подробная инструкция развёртывания (Debian 13 + CHR 7.25)
+docs/CODE_REVIEW.md         # проверка кода на реальных CHR 7.25 / Debian 13
+
 ```
 
 ---
