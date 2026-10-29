@@ -1,0 +1,17 @@
+<!doctype html>
+<html lang="ru"><head>
+<meta charset="utf-8"><title>Audit {{ inventory_hostname }}</title>
+<style>body{font-family:system-ui;margin:2rem;max-width:960px} .crit{color:#dc2626} .high{color:#ea580c} .med{color:#ca8a04} .low{color:#6b7280} table{border-collapse:collapse;width:100%} th,td{border:1px solid #ddd;padding:8px;text-align:left} th{background:#f3f4f6}</style>
+</head><body>
+<h1>{{ inventory_hostname }} — {{ ansible_host }} — ROS {{ audit_report.routeros_version }}</h1>
+<p>Compliance: <b>{{ audit_report.compliance.pct }}%</b> ({{ audit_report.compliance.passed }}/{{ audit_report.compliance.total }}) — {{ audit_report.timestamp }}</p>
+<h2>Несоответствия ({{ audit_report.compliance.failed }})</h2>
+<table><tr><th>ID</th><th>Категория</th><th>Заголовок</th><th>Severity</th><th>Текущее</th><th>Рекомендация</th></tr>
+{% for f in audit_report.findings %}
+<tr><td>{{ f.id }}</td><td>{{ f.category }}</td><td>{{ f.title }}</td><td class="{{ f.severity }}">{{ f.severity }}</td><td><code>{{ f.current }}</code></td><td><code>{{ f.remediation }}</code></td></tr>
+{% endfor %}
+</table>
+<h2>Пройдено ({{ audit_report.passed_ids | length }})</h2>
+<ul>{% for pid in audit_report.passed_ids %}<li>{{ pid }}</li>{% endfor %}</ul>
+<p><i>Сгенерировано Ansible — best practice для RouterOS 7.25 gateway (ether1 WAN 111.111.111.111, bridge1 192.168.0.50/16)</i></p>
+</body></html>

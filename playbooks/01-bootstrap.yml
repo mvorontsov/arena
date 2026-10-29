@@ -1,0 +1,23 @@
+---
+# playbooks/01-bootstrap.yml — создание тех.учётки на всех роутерах
+# Запуск: ansible-playbook playbooks/01-bootstrap.yml -k -K (спросит пароль admin)
+# После — переключите inventory на tech_user
+
+- name: Bootstrap — тех.учётка и базовые сервисы
+  hosts: mikrotik
+  gather_facts: false
+  tags: [bootstrap]
+
+  vars:
+    ansible_user: admin
+    ansible_password: "{{ vault_bootstrap_password | default(lookup('env', 'MIKROTIK_PASSWORD')) }}"
+
+  tasks:
+    - name: Bootstrap роль
+      ansible.builtin.include_role:
+        name: mikrotik_bootstrap
+
+  post_tasks:
+    - name: Итог bootstrap
+      ansible.builtin.debug:
+        msg: "Bootstrap {{ inventory_hostname }}: {{ 'OK' if bootstrap_ok else 'FAIL' }} — user_created={{ bootstrap_user_created | default(false) }}"

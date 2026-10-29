@@ -1,0 +1,13 @@
+{
+  "hostname": "gw-core-01",
+  "ansible_host": "192.168.0.50",
+  "timestamp": "2026-10-29T10:30:00+03:00",
+  "routeros_version": "7.25 (stable)",
+  "board": "CCR2116",
+  "compliance": { "total": 24, "passed": 18, "failed": 6, "pct": 75.0, "critical": 1, "high": 2, "medium": 2, "low": 1 },
+  "findings": [
+    {"id":"NET-001","category":"network","title":"WAN ether1 111.111.111.111","severity":"critical","status":"fail","current":"192.168.0.0/24","expected":"111.111.111.111 on ether1","remediation":"/ip address add address=111.111.111.111/24 interface=ether1"},
+    {"id":"FW-001","category":"firewall","title":"Firewall input accept established","severity":"critical","status":"fail","current":"0 rules","expected":"chain=input action=accept connection-state=established,related","remediation":"/ip firewall filter add chain=input action=accept connection-state=established,related"}
+  ],
+  "passed_ids": ["SYS-002","USR-001"]
+}

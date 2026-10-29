@@ -1,0 +1,15 @@
+---
+# baseline.yml — переменные для шаблона golden.j2 (переопределяют group_vars при раскатке)
+# Правится вместе с routeros-gateway.rsc, версионируется
+
+baseline_version: "1.0"
+baseline_date: "2026-10-29"
+baseline_author: "Ansible automation"
+
+dns:
+  - 1.1.1.1
+  - 8.8.8.8
+
+# Переопределения для конкретного релиза
+# ntp_servers: ["pool.ntp.org"]
+# timezone: Europe/Moscow

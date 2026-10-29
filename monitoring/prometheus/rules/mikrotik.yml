@@ -1,0 +1,47 @@
+groups:
+  - name: mikrotik
+    interval: 30s
+    rules:
+      - alert: MikrotikDown
+        expr: probe_success{job="mikrotik_api"} == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "MikroTik {{ $labels.instance }} недоступен (API)"
+          description: "API порт не отвечает >2м, проверьте шлюз 192.168.0.50 и WAN 111.111.111.111"
+
+      - alert: MikrotikAuditCritical
+        expr: mikrotik_audit_critical > 0
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Критические несоответствия best practice на {{ $labels.hostname }}"
+          description: "Критичных: {{ $value }}, compliance {{ $labels.pct }}% — см. reports/json"
+
+      - alert: MikrotikLowCompliance
+        expr: mikrotik_audit_compliance < 80
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Низкий compliance {{ $labels.hostname }}: {{ $value }}%"
+          description: "Проверьте Grafana dashboard Mikrotik Audit"
+
+      - alert: MikrotikHighCPU
+        expr: mikrotik_cpu_load > 80
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Высокая загрузка CPU {{ $labels.instance }}: {{ $value }}%"
+
+      - alert: MikrotikVersionDrift
+        expr: mikrotik_info unless on(hostname) mikrotik_info{version=~"7.25.*"}
+        for: 1h
+        labels:
+          severity: warning
+        annotations:
+          summary: "Версия ROS на {{ $labels.hostname }} не 7.25"
+          description: "Текущая: {{ $labels.version }}, ожидаемая 7.25 — обновите через baseline"

@@ -1,0 +1,107 @@
+---
+# roles/mikrotik_baseline/tasks/main.yml
+# Храним и правим эталонный конфиг, раскатываем на все роутеры из списка
+
+- name: Проверить наличие эталонного конфига
+  ansible.builtin.stat:
+    path: "{{ baseline_dir }}/{{ baseline_file_rsc }}"
+  delegate_to: localhost
+  register: baseline_stat
+  tags: [baseline, check]
+
+- name: Уведомить, если эталона нет
+  ansible.builtin.debug:
+    msg: "Эталон {{ baseline_dir }}/{{ baseline_file_rsc }} не найден — создайте его (см. config/baseline/README.md)"
+  when: not baseline_stat.stat.exists
+  tags: [baseline]
+
+- name: Загрузить эталонный RSC (для шаблонизации)
+  ansible.builtin.slurp:
+    src: "{{ baseline_dir }}/{{ baseline_file_rsc }}"
+  delegate_to: localhost
+  register: baseline_rsc_raw
+  when: baseline_stat.stat.exists
+  tags: [baseline]
+
+- name: Прочитать baseline.yml (переменные эталона)
+  ansible.builtin.include_vars:
+    file: "{{ baseline_dir }}/{{ baseline_file_yml }}"
+    name: baseline_vars
+  delegate_to: localhost
+  failed_when: false
+  tags: [baseline]
+
+# --- Бэкап текущего состояния перед раскаткой ---
+- name: Создать бэкап текущего конфига (export)
+  community.routeros.api_find:
+    path: export
+  register: current_export
+  failed_when: false
+  when: baseline_backup_before | bool
+  tags: [baseline, backup]
+
+- name: Сохранить бэкап локально
+  ansible.builtin.copy:
+    content: "{{ current_export | to_nice_json(indent=2) if current_export is success else '# export failed: ' + (current_export.msg | default('unknown')) }}"
+    dest: "{{ baseline_dir }}/../backups/{{ inventory_hostname }}-{{ ansible_date_time.iso8601 | default(lookup('pipe', 'date -Iseconds')) }}.json"
+    mode: "0644"
+  delegate_to: localhost
+  when: baseline_backup_before | bool and current_export is defined
+  tags: [baseline, backup]
+
+# --- Генерация желаемой конфигурации из эталона (Jinja2) ---
+- name: Сгенерировать желаемый RSC из эталона
+  ansible.builtin.template:
+    src: golden.j2
+    dest: "/tmp/{{ inventory_hostname }}-desired.rsc"
+    mode: "0644"
+  delegate_to: localhost
+  when: baseline_stat.stat.exists
+  tags: [baseline, gen]
+
+- name: Показать diff (current vs desired) — dry-run
+  ansible.builtin.debug:
+    msg: "Diff для {{ inventory_hostname }}: сравните /tmp/{{ inventory_hostname }}-desired.rsc с экспортом ({{ current_export | length }} строк)"
+  when: baseline_stat.stat.exists
+  tags: [baseline, diff]
+
+# --- Раскатка (по умолчанию dry-run, для apply нужен --tags apply) ---
+- name: Загрузить сгенерированный RSC на роутер (через API)
+  community.routeros.api_modify:
+    path: file
+    data:
+      - name: "ansible-baseline.rsc"
+        contents: "{{ lookup('file', '/tmp/' + inventory_hostname + '-desired.rsc') }}"
+  when:
+    - baseline_stat.stat.exists
+    - "'apply' in ansible_run_tags"
+  tags: [baseline, apply]
+  # Примечание: в RouterOS 7.25 загрузка файла + /import требует SSH или REST — здесь пример API
+
+- name: Импортировать эталонный конфиг (осторожно!)
+  community.routeros.command:
+    commands:
+      - /import file=ansible-baseline.rsc
+  when:
+    - baseline_stat.stat.exists
+    - "'apply' in ansible_run_tags"
+    - baseline_apply_strategy == 'force'
+  failed_when: false
+  tags: [baseline, apply]
+
+- name: Сообщение о safe-режиме (по умолчанию не применяем)
+  ansible.builtin.debug:
+    msg: |
+      [SAFE] Эталон для {{ inventory_hostname }} сгенерирован в /tmp/{{ inventory_hostname }}-desired.rsc
+      Для применения: ansible-playbook playbooks/04-baseline-apply.yml --tags apply
+      Или проверьте diff: ansible-playbook playbooks/04-baseline-apply.yml --tags diff
+  when: "'apply' not in ansible_run_tags"
+  tags: [baseline]
+
+- name: Удалить временный файл
+  ansible.builtin.file:
+    path: "/tmp/{{ inventory_hostname }}-desired.rsc"
+    state: absent
+  delegate_to: localhost
+  when: baseline_stat.stat.exists
+  tags: [baseline]

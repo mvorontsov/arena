@@ -1,332 +1,155 @@
-# rosctl — Оркестратор для MikroTik RouterOS
+# Управление роутерами MikroTik с помощью Ansible
 
-<p align="center">
-  <b>Ansible-подобный CLI + Web-дашборд для флота RouterOS</b><br>
-  <i>инвентарь • плейбуки • Jinja2-шаблоны • массовый rollout • diff/rollback • бэкапы • мониторинг • CAPsMAN/WireGuard/VLAN</i>
-</p>
-
-<p align="center">
-  <code>rosctl</code> — один бинарник для управления сотнями MikroTik: от hAP ax³ до CCR2116.<br>
-  Работает через <b>REST API</b> и <b>SSH</b>, поддерживает <b>demo-режим</b> без живых роутеров.
-</p>
+> **ТЗ:** RouterOS **7.25 (API)**, шлюз `ether1: 111.111.111.111 ↔ bridge1(ether2-10): 192.168.0.50/16`, Ansible на **Debian 13** в `192.168.0.0/16`. Функции: подключение, тех.учётка, инвентаризация, аудит best practice, рекомендации, эталонный конфиг и раскатка, Grafana/Prometheus.
 
 ---
 
-## ⚡ Быстрый старт (30 секунд)
+## 🚀 Быстрый старт (5 команд)
 
 ```bash
-pip install -e .                    # или: pip install ros-orchestrator
-rosctl init                         # создаёт inventory.yml + примеры
-rosctl inventory list               # посмотреть флот
-rosctl exec "/system/resource/print" -g edge   # выполнить на группе
-rosctl play playbooks/example.yml --dry-run --diff  # плейбук с diff
-rosctl serve                        # веб-дашборд + API на :8000
+git clone <repo> && cd arena
+cp inventory/hosts.example.yml inventory/hosts.yml   # заполните ansible_password (vault)
+ansible-galaxy collection install -r collections/requirements.yml
+ansible-playbook playbooks/01-bootstrap.yml          # создаёт ansible-учётку
+ansible-playbook playbooks/02-inventory.yml          # факты → reports/facts/
+ansible-playbook playbooks/03-audit.yml              # best practice → Grafana
+# Мониторинг
+docker compose -f monitoring/docker-compose.monitoring.yml up -d  # Prometheus 9090, Grafana 3000 admin/admin
 ```
 
-Откройте **http://localhost:8000** — инвентарь, мониторинг, exec, плейбуки, бэкапы, топология.
-
-> **Demo-режим** включён по умолчанию: все хосты `10.*`/`192.168.*` возвращают синтетические ответы, чтобы вы могли оценить оркестрацию без реальных роутеров. Для живой работы: `ROS_DEMO=0 rosctl exec "/system/resource/print" -g edge`.
+**Стенд-проверка перед мажором:** `./scripts/check-stand.sh` (проверяет API, инвентарь, размер <128МБ, checksum)
 
 ---
 
-## 🧭 Возможности
+## 📁 Структура
 
-| Модуль | Что умеет |
+```
+ansible.cfg                 # API, pipelining, cache
+inventory/hosts.yml         # gw-core-01 192.168.0.50 (приват, не коммить)
+group_vars/all.yml          # expected: WAN/LAN, tech_user, NTP/DNS, security, monitoring
+group_vars/mikrotik.yml     # api 8728→8729
+playbooks/
+  01-bootstrap.yml          # тех.учётка ansible + api-ssl
+  02-inventory.yml          # сбор фактов (15+ API-путей)
+  03-audit.yml              # сверка с best_practice.yml → JSON + Prometheus
+  04-baseline-apply.yml     # эталон → diff/apply serial=1
+  05-monitoring.yml         # SNMP/syslog → Prometheus
+roles/
+  mikrotik_bootstrap/       # создание пользователя, api-ssl, strong-crypto
+  mikrotik_inventory/       # 15 фактов + JSON для Grafana
+  mikrotik_audit/           # 24 правила (SYS/NET/USR/SVC/FW/DNS/MON) → compliance%
+  mikrotik_baseline/        # golden.j2 шаблон, бэкап, раскатка
+  monitoring/               # SNMP, syslog
+config/baseline/
+  routeros-gateway.rsc      # эталон RSC — правится здесь, версионируется
+  baseline.yml              # переменные эталона
+  README.md
+monitoring/
+  prometheus/prometheus.yml # + pushgateway, snmp_exporter, blackbox
+  grafana/dashboards/mikrotik-audit.json
+  docker-compose.monitoring.yml
+scripts/check-stand.sh      # п.7: стенд-тест + размер + checksum
+scripts/rollout.sh          # safe раскатка: diff → apply → audit
+scripts/journal.sh          # п.6: запись в журнал с timestamp+sha256
+ERROR_JOURNAL.md            # журнал ошибок (обязателен)
+STAND_CHECK.md              # протокол стенда
+docs/best_practices.md      # описание 24 правил
+```
+
+---
+
+## 🔐 1. Bootstrap — тех.учётка
+
+```bash
+ansible-playbook playbooks/01-bootstrap.yml -k  # спросит пароль admin
+# Создаёт ansible/full/192.168.0.0/16, включает api-ssl 8729, выключает telnet/ftp/www, ssh strong-crypto
+# После — в inventory/hosts.yml поменяйте ansible_user: ansible, port: 8729, api_use_ssl: true
+```
+
+---
+
+## 📦 2. Инвентаризация
+
+Собирает: `system resource/identity/clock/routerboard, ip address/route, interface/bridge port, firewall filter/nat, ip service/dns/dhcp, user, ntp, discovery` → `reports/facts/<host>.json`
+
+**Для Grafana:** `reports/facts/` — источник, плюс `mikrotik_facts` в памяти.
+
+---
+
+## ✅ 3. Аудит best practice (RouterOS 7.25 gateway)
+
+Правила в `roles/mikrotik_audit/vars/best_practice.yml`:
+
+| Категория | Примеры (ID) |
 |---|---|
-| **Inventory** | YAML-инвентарь с группами, тегами, vars, `defaults`, glob-фильтры `—limit "gw-*,branch-*"` |
-| **Orchestrator** | Параллельный/последовательный/rolling rollout, `--parallel 20`, `--dry-run`, `--diff`, теги |
-| **Плейбуки** | YAML как в Ansible: `plays → hosts → tasks (command/template)`, `vars`, `when`, `loop`, `tags` |
-| **Шаблоны** | Jinja2 → RSC (`templates/*.rsc.j2`), контекст `inventory_hostname, host, group, vars, item` |
-| **Бэкапы** | `export` → `backups/<host>/YYYYMMDD-HHMMSS.rsc` + `.json` мета, `list/diff/prune` |
-| **Мониторинг** | `resource`, CPU/MEM/Uptime, `stats --watch`, `top`, алерты (CPU>70, offline, low-mem) |
-| **Сетевые пресеты** | `wireguard status/genkey`, `firewall list`, `capsman status`, `audit` (дефолтные пароли, SSL, обновления) |
-| **Web/API** | FastAPI + одностраничный дашборд: инвентарь, exec, плейбуки, мониторинг-live, бэкапы, топология, audit |
+| **System** | NTP включён (SYS-001), timezone Europe/Moscow, ROS 7.25 |
+| **Network** | WAN 111.111.111.111 на ether1 (NET-001), bridge1 192.168.0.50/16 с ether2-10, маршрут 0.0.0.0/0 |
+| **Users** | ansible/full/192.168.0.0/16, admin не default, ssh strong-crypto |
+| **Services** | telnet/ftp/www/api disabled, api-ssl только из LAN |
+| **Firewall** | input established, drop invalid, final drop, NAT masquerade на ether1 |
+| **DNS/DHCP/SNMP** | DNS 1.1.1.1/8.8.8.8, DHCP pool, SNMP не public |
+
+**Запуск:** `ansible-playbook playbooks/03-audit.yml` → `reports/json/<host>.audit.json` + `reports/prometheus/<host>.prom` → Pushgateway `192.168.0.10:9091`
+
+**Вывод:** compliance % (например 73.5%), failed/critical счётчики, и для каждого — `current vs expected + remediation` (готовая команда RouterOS).
 
 ---
 
-## 📦 Установка
+## 🏆 4. Эталонный конфиг → раскатка
 
-### Локально
+**Хранится:** `config/baseline/routeros-gateway.rsc` (полный RSC) + `baseline.yml`. Правите там → коммит → запись в `ERROR_JOURNAL.md` с checksum (`./scripts/journal.sh config/baseline/routeros-gateway.rsc "что изменено"`).
+
+**Безопасно (serial=1):**
 ```bash
-git clone https://github.com/mvorontsov/arena && cd arena
-python -m venv .venv && source .venv/bin/activate
-pip install -e ".[dev]"
-rosctl --help
+./scripts/rollout.sh diff              # только diff, без изменений
+./scripts/rollout.sh diff gw-core-01  # на один
+./scripts/rollout.sh apply             # применение (спросит y/N, сделает бэкап, затем push)
+# или вручную:
+ansible-playbook playbooks/04-baseline-apply.yml --tags diff
+ansible-playbook playbooks/04-baseline-apply.yml --tags apply --limit gw-core-01
+ansible-playbook playbooks/03-audit.yml  # пост-аудит → Grafana вырастет
 ```
 
-### Docker
-```bash
-docker compose up -d
-# API: http://localhost:8000  Docs: http://localhost:8000/docs
-```
-`docker-compose.yml` уже в репозитории — бэкенд + фронтенд (один образ).
-
-### Переменные окружения
-```bash
-ROS_INVENTORY_PATH=./inventory.yml
-ROS_BACKUPS_DIR=./backups
-ROS_TEMPLATES_DIR=./templates
-ROS_DEMO=1              # 1=демо (без роутеров), 0=реальные запросы
-ROS_DEFAULT_PARALLEL=20
-```
+Бэкапы: `config/backups/<host>-<date>.json` (не коммитить). Откат: `/import file=...`
 
 ---
 
-## 📋 Inventory
-
-`inventory.yml` — единый источник правды:
-
-```yaml
-defaults:
-  username: admin
-  password: changeme
-  api_ssl: false
-  timeout: 10
-
-groups:
-  edge:
-    vars: { dns_primary: 1.1.1.1, ntp: pool.ntp.org }
-  branch:
-    vars: { capsman: "10.0.0.1" }
-
-hosts:
-  - name: gw-msk-01
-    host: 10.10.0.1
-    group: edge
-    tags: [msk, prod]
-    comment: GW Москва — CCR2116
-    vars: { wg_address: 10.255.0.1/24 }
-```
-
-Команды:
-```bash
-rosctl inventory list                          # таблица
-rosctl inventory list -g edge                  # по группе
-rosctl inventory list -t prod --json           # по тегу
-rosctl inventory list --limit "gw-*,lab-*"     # glob
-rosctl inventory show gw-msk-01
-rosctl inventory test --parallel 30            # проверка доступности
-rosctl inventory add new-host 10.0.0.99 -g lab --tags test
-```
-
----
-
-## 🚀 Exec — массовое выполнение
+## 📊 5. Grafana + Prometheus (п.9-10)
 
 ```bash
-rosctl exec "/system/resource/print" --group edge
-rosctl exec "/ip/address/print" --tag retail --parallel 30
-rosctl exec "/interface/wireguard/print" --limit "gw-msk-*,lab-*" --output json
-rosctl exec "/ip dns set servers=1.1.1.1,8.8.8.8" --dry-run   # без применения
+docker compose -f monitoring/docker-compose.monitoring.yml up -d
+# Prometheus http://192.168.0.10:9090, Grafana http://192.168.0.10:3000 admin/admin
 ```
 
-Вывод — Rich-таблица с `host | status | latency | output`. Поддерживает `table | json | yaml`.
+**Метрики:** `mikrotik_audit_compliance`, `mikrotik_audit_check{id,severity}`, `mikrotik_audit_critical`, `mikrotik_info`, `probe_success`
 
-REST-маппинг: `/system/resource/print` → `GET /rest/system/resource`, мутации → `POST /rest/...`.
+**Дашборд:** `monitoring/grafana/dashboards/mikrotik-audit.json` — Compliance stat, таблица несоответствий, график по хостам, инвентарь. Автообновление 30с.
+
+**Аллерты:** `monitoring/prometheus/rules/mikrotik.yml` — MikrotikDown, AuditCritical, LowCompliance, VersionDrift.
 
 ---
 
-## 📖 Плейбуки
+## 📏 Ограничения (п.5-7)
 
-Синтаксис вдохновлён Ansible, адаптирован под RouterOS:
-
-```yaml
-name: Базовая настройка
-plays:
-  - name: Базовая сеть
-    hosts: all                 # группа/тег/маска или "all"
-    vars: { dns_primary: 1.1.1.1 }
-    strategy: parallel         # parallel | sequential | rolling
-    parallel: 20
-    tasks:
-      - name: Установить DNS
-        command: /ip dns set servers={{ dns_primary }},8.8.8.8
-        tags: [dns]
-
-      - name: WireGuard из шаблона
-        template: wireguard.rsc.j2
-        vars:
-          wg_address: 10.255.0.1/24
-          peers:
-            - { pubkey: "...", allowed: "10.255.0.0/24", endpoint: "1.2.3.4:13231" }
-        tags: [vpn]
-
-      - name: Условно
-        command: /ip service disable telnet
-        when: "group == 'edge'"    # Jinja2-условие
-        tags: [harden]
-
-      - name: Цикл
-        command: /interface vlan add name=vlan{{ item }} vlan-id={{ item }}
-        loop: [10, 20, 30]
-```
-
-Запуск:
-```bash
-rosctl play playbooks/example.yml --dry-run --diff
-rosctl play playbooks/wireguard.yml --limit edge --tags vpn
-rosctl play playbooks/vlan.yml -e vlan_id=20,dns_primary=9.9.9.9
-rosctl lint playbooks/harden.yml     # валидация
-```
-
-Опции: `--limit`, `--tags`/`--skip-tags`, `--extra-vars key=val`, `--parallel`, `--check` (dry-run), `--diff`.
+- **Размер workspace <128МБ:** `scripts/check-stand.sh` проверяет `du -sh`, очищайте `.cache`, `reports`, `config/backups` (см. `make clean` если добавите)
+- **Журнал:** `ERROR_JOURNAL.md` — каждая ошибка/фикс с `[timestamp] checksum=<sha256> size= file=<путь> — описание`. Добавляйте через `./scripts/journal.sh <file> "описание"`
+- **Стенд:** `STAND_CHECK.md` + `scripts/check-stand.sh` — мажоры только после прогона на `gw-lab-01`
+- **Вопросы:** задавайте — например, WAN маска/GW провайдера, нужен ли DHCP, SNMP community, vault пароли
 
 ---
 
-## 🧩 Шаблоны Jinja2
+## 🔧 Требования
 
-`templates/*.rsc.j2` рендерятся с контекстом хоста:
-
-```jinja
-# {{ inventory_hostname }} — {{ host }} — {{ group }}
-/interface wireguard add name={{ wg_name }} listen-port={{ wg_port }} private-key="{{ wg_private_key }}"
-/ip address add address={{ wg_address }} interface={{ wg_name }}
-{% for peer in peers %}
-/interface wireguard peers add interface={{ wg_name }} public-key="{{ peer.pubkey }}" allowed-address={{ peer.allowed }}
-{% endfor %}
-```
-
-```bash
-rosctl template list
-rosctl template render wireguard.rsc.j2 --host gw-msk-01 --var wg_address=10.0.0.1/24 --var wg_port=13231
-```
+- Ansible 2.16+ (`pipx install ansible`), коллекции: `ansible-galaxy collection install -r collections/requirements.yml`
+- Python 3.11+, `community.routeros` 2.9+, доступ из `192.168.0.0/16` в `192.168.0.50:8728/8729`
+- Для мониторинга: Docker + Compose на Debian 13
 
 ---
 
-## 💾 Бэкапы
+## 📚 Доки
 
-```bash
-rosctl backup create -g edge                    # export всех edge
-rosctl backup list                              # последние
-rosctl backup list gw-msk-01
-rosctl backup diff gw-msk-01                    # diff с последним
-rosctl backup diff gw-msk-01 backups/gw-msk-01/20251029-120000.rsc
-rosctl backup prune --keep 30                   # ротация
-```
+- `docs/best_practices.md` — 24 правила подробно
+- `docs/monitoring.md` — Prometheus/Grafana поток
+- `config/baseline/README.md` — жизненный цикл эталона
 
-Хранение: `backups/<hostname>/YYYYMMDD-HHMMSS.rsc` + `.json` (размер, версия, время).
-
----
-
-## 📊 Мониторинг
-
-```bash
-rosctl monitor stats                    # таблица CPU/MEM/Uptime/Board
-rosctl monitor stats -g edge --watch    # автообновление 2с
-rosctl monitor stats --json             # для интеграции
-rosctl monitor top                      # htop-style TUI (live)
-```
-
-Web: `/api/monitoring` → алерты (`CPU>85 crit`, `offline`, `low-mem`), графики, история.
-
----
-
-## 🔐 WireGuard, Firewall, CAPsMAN, Audit
-
-```bash
-rosctl wireguard status -g edge
-rosctl wireguard genkey                  # генерация keypair
-
-rosctl firewall list --host gw-msk-01
-rosctl capsman status
-
-rosctl audit                            # дефолтные пароли, firewall, SSL, обновления
-rosctl diff gw-msk-01 --template base.rsc.j2
-```
-
----
-
-## 🌐 Web-дашборд и API
-
-```bash
-rosctl serve --port 8000 --host 0.0.0.0
-# → http://localhost:8000        дашборд
-# → http://localhost:8000/docs   Swagger
-# → http://localhost:8000/health
-```
-
-API:
-```
-GET  /api/inventory
-GET  /api/monitoring?group=edge
-POST /api/exec          {command, group, limit, parallel}
-POST /api/backups/create
-GET  /api/backups?host=gw-msk-01
-POST /api/playbook/run  {playbook, limit, dry_run, diff, extra_vars}
-GET  /api/audit
-GET  /api/hosts/{name}/export
-GET  /api/hosts/{name}/diff
-```
-
-Дашборд — один HTML (без сборки): Tailwind CDN, live-обновление 3с, exec-консоль, модалка плейбуков, топология.
-
----
-
-## 🐳 Docker Compose
-
-```yaml
-services:
-  rosctl:
-    build: .
-    ports: ["8000:8000"]
-    volumes: ["./inventory.yml:/app/inventory.yml", "./backups:/app/backups", "./templates:/app/templates", "./playbooks:/app/playbooks"]
-    environment: [ROS_DEMO=1]
-    command: rosctl serve --host 0.0.0.0 --port 8000
-```
-
-```bash
-docker compose up --build
-```
-
----
-
-## 🧪 Разработка
-
-```bash
-pip install -e ".[dev]"
-pytest -q
-ruff check .
-rosctl lint playbooks/example.yml
-ROS_DEMO=1 rosctl exec "/system/resource/print" -g lab
-```
-
-Структура:
-```
-arena/
-├── ros_orchestrator/
-│   ├── cli.py               # Typer CLI (основной интерфейс)
-│   ├── config.py            # Pydantic Settings + модели Inventory
-│   ├── inventory/manager.py
-│   ├── client/ {rest,ssh,base}.py
-│   ├── orchestrator/ {executor,tasks}.py
-│   ├── backup/manager.py
-│   ├── monitoring/collector.py
-│   └── web/app.py           # FastAPI + дашборд
-├── inventory.yml / inventory.example.yml
-├── playbooks/ {example,wireguard,vlan,harden}.yml
-├── templates/ {base,wireguard,capsman,dhcp}.rsc.j2
-├── backups/
-├── tests/
-└── docker-compose.yml / Dockerfile
-```
-
----
-
-## 🔌 Подключение к реальным RouterOS
-
-1. Включите REST API: `/ip service enable api` (или `api-ssl`), `/user set admin password=...`
-2. Откройте порт: `/ip service set api port=8728` (или 8729 для SSL)
-3. Запустите:
-   ```bash
-   ROS_DEMO=0 rosctl inventory test
-   ROS_DEMO=0 rosctl exec "/system/resource/print" -g edge
-   ```
-4. Для SSH: укажите `key_file` или `password` в inventory, клиент `paramiko` подхватит.
-
----
-
-## 📝 Лицензия
-
-MIT — используйте свободно. PR и issues приветствуются.
-
-<p align="center"><i>Сделано для сетевых инженеров, которые устали от WinBox на 200 роутеров.</i></p>
+**Лицензия:** MIT

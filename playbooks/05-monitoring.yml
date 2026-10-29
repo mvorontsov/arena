@@ -1,0 +1,39 @@
+---
+# playbooks/05-monitoring.yml — настройка Prometheus/Grafana сбора
+# Запуск: ansible-playbook playbooks/05-monitoring.yml
+# Требует: prometheus + snmp_exporter + grafana на 192.168.0.10 (см. monitoring/docker-compose.monitoring.yml)
+
+- name: Мониторинг — настроить роутеры для сбора
+  hosts: mikrotik
+  gather_facts: false
+  tags: [monitoring]
+
+  tasks:
+    - name: Роль мониторинга (SNMP, syslog, accounting)
+      ansible.builtin.include_role:
+        name: monitoring
+
+- name: Мониторинг — развернуть стек на Debian 13 (localhost)
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  tags: [monitoring, stack]
+
+  vars:
+    monitoring_stack_dir: "./monitoring"
+
+  tasks:
+    - name: Проверить docker-compose для мониторинга
+      ansible.builtin.stat:
+        path: "{{ monitoring_stack_dir }}/docker-compose.monitoring.yml"
+      register: compose_stat
+
+    - name: Подсказка по стеку
+      ansible.builtin.debug:
+        msg: |
+          Стек мониторинга:
+          - Prometheus: {{ monitoring_stack_dir }}/prometheus/prometheus.yml
+          - Grafana: {{ monitoring_stack_dir }}/grafana/dashboards/mikrotik-audit.json
+          Запуск: docker compose -f monitoring/docker-compose.monitoring.yml up -d
+          Grafana: http://192.168.0.10:3000 (admin/admin), Prometheus: http://192.168.0.10:9090
+      when: compose_stat.stat.exists

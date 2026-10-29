@@ -1,0 +1,17 @@
+---
+# defaults для bootstrap — создание тех. учётки
+
+tech_user: ansible
+tech_user_group: full
+tech_user_password: "ChangeMe_Ansible_2025!"
+tech_user_allowed_address: "192.168.0.0/16"
+tech_user_comment: "Ansible automation"
+
+# Если уже есть учётка — не пересоздавать
+tech_user_force: false
+
+# SSH ключ (опционально, если есть на контроллере)
+tech_user_ssh_pubkey: ""
+
+# Проверка — после создания пробуем переподключиться новой учёткой
+bootstrap_verify: true

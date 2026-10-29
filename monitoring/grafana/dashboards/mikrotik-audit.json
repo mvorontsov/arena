@@ -1,0 +1,68 @@
+{
+  "uid": "mikrotik-audit",
+  "title": "MikroTik — Аудит и Compliance",
+  "tags": ["mikrotik", "routeros", "ansible"],
+  "timezone": "Europe/Moscow",
+  "schemaVersion": 39,
+  "version": 1,
+  "description": "Best practice audit для RouterOS 7.25 gateway (ether1 WAN 111.111.111.111, bridge1 LAN 192.168.0.50/16) — данные из Ansible pushgateway",
+  "editable": true,
+  "panels": [
+    {
+      "type": "stat",
+      "title": "Compliance % (среднее)",
+      "datasource": "Prometheus",
+      "targets": [{"expr": "avg(mikrotik_audit_compliance)", "format": "time_series"}],
+      "fieldConfig": {"defaults": {"unit": "percent", "thresholds": {"steps": [{"color": "red", "value": 0}, {"color": "yellow", "value": 70}, {"color": "green", "value": 90}]}}},
+      "gridPos": {"h": 4, "w": 6, "x": 0, "y": 0}
+    },
+    {
+      "type": "stat",
+      "title": "Критичных несоответствий",
+      "datasource": "Prometheus",
+      "targets": [{"expr": "sum(mikrotik_audit_critical)", "format": "time_series"}],
+      "fieldConfig": {"defaults": {"thresholds": {"steps": [{"color": "green", "value": 0}, {"color": "red", "value": 1}]}}},
+      "gridPos": {"h": 4, "w": 6, "x": 6, "y": 0}
+    },
+    {
+      "type": "table",
+      "title": "Детали — findings по хостам",
+      "datasource": "Prometheus",
+      "targets": [{"expr": "mikrotik_audit_check == 1", "format": "table", "instant": true}],
+      "transformations": [{"id": "organize", "options": {"renameByName": {"hostname": "Хост", "id": "Правило", "severity": "Важность"}}}],
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 4}
+    },
+    {
+      "type": "timeseries",
+      "title": "Compliance по хостам",
+      "datasource": "Prometheus",
+      "targets": [{"expr": "mikrotik_audit_compliance", "legendFormat": "{{hostname}} ({{version}})"}],
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 4}
+    },
+    {
+      "type": "bargauge",
+      "title": "Passed / Failed",
+      "datasource": "Prometheus",
+      "targets": [{"expr": "sum(mikrotik_audit_passed)", "legendFormat": "Passed"}, {"expr": "sum(mikrotik_audit_failed)", "legendFormat": "Failed"}],
+      "gridPos": {"h": 4, "w": 6, "x": 12, "y": 0}
+    },
+    {
+      "type": "table",
+      "title": "Инвентарь — info",
+      "datasource": "Prometheus",
+      "targets": [{"expr": "mikrotik_info", "format": "table", "instant": true}],
+      "gridPos": {"h": 6, "w": 12, "x": 0, "y": 12}
+    }
+  ],
+  "templating": {
+    "list": [
+      {"name": "hostname", "type": "query", "datasource": "Prometheus", "query": "label_values(mikrotik_audit_compliance, hostname)", "multi": true, "includeAll": true}
+    ]
+  },
+  "time": {"from": "now-24h", "to": "now"},
+  "refresh": "30s",
+  "links": [
+    {"title": "Отчёты Ansible", "url": "http://192.168.0.10/reports/", "type": "link"},
+    {"title": "Prometheus", "url": "http://192.168.0.10:9090", "type": "link"}
+  ]
+}

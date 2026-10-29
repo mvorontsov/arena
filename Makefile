@@ -1,29 +1,38 @@
-.PHONY: install dev test lint run serve docker
+.PHONY: install check stand audit baseline monitoring clean size
 
 install:
-	python -m venv .venv && .venv/bin/pip install -e .
+	ansible-galaxy collection install -r collections/requirements.yml
+	@echo "✓ collections installed"
 
-dev:
-	.venv/bin/pip install -e ".[dev]"
+check:
+	ansible-playbook --syntax-check playbooks/*.yml
+	ansible-lint playbooks/*.yml || true
 
-test:
-	.venv/bin/pytest -q
+stand:
+	./scripts/check-stand.sh
 
-lint:
-	.venv/bin/rosctl lint playbooks/example.yml
+audit:
+	ansible-playbook playbooks/02-inventory.yml
+	ansible-playbook playbooks/03-audit.yml
+	@echo "Отчёты: reports/json/*.audit.json → Grafana http://192.168.0.10:3000"
 
-run:
-	.venv/bin/rosctl inventory list
-	.venv/bin/rosctl exec "/system/resource/print" -g edge
+baseline-diff:
+	ansible-playbook playbooks/04-baseline-apply.yml --tags diff
 
-serve:
-	.venv/bin/rosctl serve --host 0.0.0.0 --port 8000
+baseline-apply:
+	./scripts/rollout.sh apply
 
-docker:
-	docker compose up --build
+monitoring:
+	docker compose -f monitoring/docker-compose.monitoring.yml up -d
+	@echo "Prometheus http://192.168.0.10:9090  Grafana http://192.168.0.10:3000 admin/admin"
 
-demo:
-	.venv/bin/rosctl exec "/system/resource/print" -g edge
-	.venv/bin/rosctl play playbooks/example.yml --dry-run --diff
-	.venv/bin/rosctl backup create -g edge
-	.venv/bin/rosctl monitor stats
+size:
+	du -sh . .cache reports config/backups 2>/dev/null
+	@echo "Лимит 128M — если превышен, make clean"
+
+clean:
+	rm -rf .cache/* reports/facts/* reports/json/* reports/prometheus/* config/backups/*
+	@echo "Очищено (сообщите в ERROR_JOURNAL если мажор)"
+
+journal:
+	./scripts/journal.sh $(file) "$(msg)"

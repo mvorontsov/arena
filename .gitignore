@@ -1,24 +1,43 @@
-__pycache__/
-*.pyc
-*.pyo
-.venv/
-.venv*/
-env/
-.env
-*.db
-*.sqlite
-backups/**/*.rsc
-backups/**/*.json
-!backups/.gitkeep
-dist/
-build/
-*.egg-info/
-.pytest_cache/
-.ruff_cache/
-.mypy_cache/
-node_modules/
-.DS_Store
-.idea/
-.vscode/
+# Ansible
+*.retry
 *.log
-ros.db
+.vault_pass
+.vault/
+collections_installed/
+ansible_collections/
+.cache/
+reports/facts/*.json
+reports/facts/*.yml
+reports/json/*.json
+reports/prometheus/*.prom
+config/backups/*.json
+config/backups/*.rsc
+
+# Secrets
+inventory/hosts.yml
+host_vars/*.vault
+group_vars/*.vault
+.env
+*.key
+*.pem
+
+# Backups
+*.backup
+*.rsc.backup
+
+# Cache
+.pytest_cache/
+*.pyc
+__pycache__/
+.mypy_cache/
+
+# Monitoring data
+prometheus_data/
+grafana_data/
+
+# OS
+.DS_Store
+Thumbs.db
+*~
+.venv/
+venv/

@@ -1,0 +1,24 @@
+---
+# Ansible Collections для управления MikroTik RouterOS 7.25+
+# Установка: ansible-galaxy collection install -r collections/requirements.yml
+
+collections:
+  # Основная коллекция для RouterOS через API (официальная)
+  - name: community.routeros
+    version: ">=2.9.0"
+    source: https://galaxy.ansible.com
+
+  # Универсальные утилиты
+  - name: community.general
+    version: ">=8.0.0"
+
+  # Для работы с Prometheus/Grafana
+  - name: prometheus.prometheus
+    version: ">=0.13.0"
+
+  - name: community.grafana
+    version: ">=1.6.0"
+
+  # Для Docker (мониторинг-стек)
+  - name: community.docker
+    version: ">=3.10.0"

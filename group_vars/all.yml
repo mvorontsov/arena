@@ -1,0 +1,70 @@
+---
+# group_vars/all.yml — общие переменные для всего флота
+
+# === Техническая учётка для Ansible ===
+tech_user: ansible
+tech_user_group: full          # RouterOS группа full — полный доступ
+tech_user_password: "{{ vault_tech_password | default('Ans1ble!Str0ng_' + lookup('password', '/dev/null length=12 chars=ascii_letters,digits')) }}"
+tech_user_ssh_pubkey: "{{ lookup('file', '~/.ssh/id_rsa.pub', errors='ignore') | default('') }}"
+tech_user_allowed_address: "192.168.0.0/16"  # только из LAN
+tech_user_comment: "Ansible automation — managed, do not edit manually"
+
+# === Ожидаемая архитектура шлюза (п.3 ТЗ) ===
+expected:
+  wan:
+    interface: ether1
+    address: 111.111.111.111     # проверяется как /ip address на ether1
+    netmask: 24                 # пример, уточните у провайдера
+    gateway: 111.111.111.1      # шлюз провайдера (для аудита маршрута)
+  lan:
+    bridge: bridge1
+    address: 192.168.0.50
+    netmask: 16                 # 192.168.0.0/16
+    ports: [ether2, ether3, ether4, ether5, ether6, ether7, ether8, ether9, ether10]
+    dhcp_pool: "192.168.100.100-192.168.100.200"
+    dhcp_network: "192.168.0.0/16"
+    dns: ["1.1.1.1", "8.8.8.8"]
+
+# === NTP / DNS / Time ===
+ntp_servers: ["pool.ntp.org", "time.cloudflare.com"]
+ntp_enabled: true
+timezone: "Europe/Moscow"
+dns_servers: ["1.1.1.1", "8.8.8.8"]
+dns_allow_remote_requests: false  # best practice: не быть открытым резолвером, если не нужно
+
+# === Безопасность (best practice) ===
+security:
+  disable_services: ["telnet", "ftp", "www", "api", "api-ssl"] # api оставляем только api-ssl если нужен
+  # фактически: отключаем всё, кроме ssh, winbox, api-ssl
+  enabled_services:
+    - { name: ssh, port: 22, address: "192.168.0.0/16" }
+    - { name: winbox, port: 8291, address: "192.168.0.0/16" }
+    - { name: api-ssl, port: 8729, address: "192.168.0.0/16" }
+  ssh_strong_crypto: true
+  ssh_forwarding: false
+  winbox_restrict: "192.168.0.0/16"
+  neighbor_discovery_wan: false  # discovery на ether1 выключить
+  mac_server_wan: false
+
+# === Мониторинг ===
+monitoring:
+  prometheus_enabled: true
+  snmp_enabled: true
+  snmp_community: "{{ vault_snmp_community | default('mikrotik-ro') }}"
+  snmp_address: "192.168.0.0/16"
+  syslog_remote: "192.168.0.10"  # хост Debian 13 с Prometheus/Loki
+  syslog_port: 514
+
+# === Бэкапы / эталон ===
+backup:
+  enabled: true
+  schedule: "daily"   # 02:00
+  retention: 30
+  encrypt: false
+  path: "/config/baseline"
+
+# === Аудит ===
+audit:
+  fail_on_critical: false  # не падать, только отчёт
+  output_dir: "./reports"
+  grafana_push: true       # пушить метрики в Prometheus Pushgateway для Grafana

@@ -1,0 +1,48 @@
+---
+# playbooks/03-audit.yml — проверка на best practice + выгрузка в Grafana
+# Запуск: ansible-playbook playbooks/03-audit.yml
+# Зависит от 02-inventory (или делает её если нет)
+
+- name: Аудит — best practice для RouterOS 7.25
+  hosts: mikrotik
+  gather_facts: true
+  tags: [audit]
+
+  vars:
+    audit_output_dir: "./reports"
+    audit_prometheus_pushgateway: "http://192.168.0.10:9091"
+    audit_export_prometheus: true
+
+  pre_tasks:
+    - name: Проверить, что факты собраны (если нет — собрать)
+      ansible.builtin.stat:
+        path: "{{ audit_output_dir }}/facts/{{ inventory_hostname }}.json"
+      delegate_to: localhost
+      register: facts_stat
+      tags: [audit]
+
+    - name: Собрать факты, если отсутствуют
+      ansible.builtin.include_role:
+        name: mikrotik_inventory
+      vars:
+        inventory_output_dir: "{{ audit_output_dir }}/facts"
+      when: not facts_stat.stat.exists
+      tags: [audit]
+
+  tasks:
+    - name: Роль аудита
+      ansible.builtin.include_role:
+        name: mikrotik_audit
+
+  post_tasks:
+    - name: Уведомить о критических несоответствиях
+      ansible.builtin.fail:
+        msg: "Критические несоответствия на {{ inventory_hostname }} — проверьте reports/json/{{ inventory_hostname }}.audit.json"
+      when:
+        - audit_fail_on_critical | bool
+        - audit_critical | int > 0
+      tags: [audit]
+
+    - name: Итог аудита
+      ansible.builtin.debug:
+        msg: "Аудит {{ inventory_hostname }}: {{ audit_compliance_pct }}% — критичных {{ audit_critical }}, высоких {{ audit_high }}. Отчёт: reports/json/{{ inventory_hostname }}.audit.json"

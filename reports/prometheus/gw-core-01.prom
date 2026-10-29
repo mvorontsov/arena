@@ -1,0 +1,4 @@
+mikrotik_audit_compliance{hostname="gw-core-01",board="CCR2116",version="7.25 (stable)"} 75.0
+mikrotik_audit_failed{hostname="gw-core-01"} 6
+mikrotik_audit_critical{hostname="gw-core-01"} 1
+mikrotik_audit_check{hostname="gw-core-01",id="NET-001",severity="critical"} 1

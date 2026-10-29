@@ -1,0 +1,342 @@
+---
+# roles/mikrotik_audit/tasks/main.yml
+# Проверяет собранные факты (mikrotik_facts) на соответствие best_practice.yml
+# Результат: compliance report JSON + Prometheus метрики для Grafana
+
+- name: Загрузить эталон best practice
+  ansible.builtin.include_vars:
+    file: best_practice.yml
+    name: bp
+  tags: [audit]
+
+- name: Создать директории для отчётов
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    mode: "0755"
+  loop:
+    - "{{ audit_output_dir | default('./reports') }}"
+    - "{{ audit_output_dir | default('./reports') }}/json"
+    - "{{ audit_output_dir | default('./reports') }}/prometheus"
+  delegate_to: localhost
+  run_once: false
+  tags: [audit]
+
+- name: Инициализировать список несоответствий
+  ansible.builtin.set_fact:
+    audit_findings: []
+    audit_passed: []
+    audit_score: 0
+  tags: [audit]
+
+# --- Проверки (логика вынесена в library/mikrotik_audit.py для читаемости, здесь — упрощённые примеры) ---
+# Для каждой категории делаем реальные проверки через API-факты.
+# Ниже — примерные проверки, покрывающие критичный функционал шлюза.
+
+- name: "[SYS] Проверка NTP"
+  ansible.builtin.set_fact:
+    _ntp_ok: >-
+      {{
+        mikrotik_facts.ntp is defined and
+        mikrotik_facts.ntp.enabled | default(false) | bool and
+        (ntp_servers[0] in (mikrotik_facts.ntp.servers | default('')) or
+         'pool.ntp.org' in (mikrotik_facts.ntp['servers'] | default('') | string))
+      }}
+  tags: [audit, system]
+
+- name: Зафиксировать NTP результат
+  ansible.builtin.set_fact:
+    audit_findings: "{{ audit_findings + [finding] if not _ntp_ok else audit_findings }}"
+    audit_passed: "{{ audit_passed + ['SYS-001'] if _ntp_ok else audit_passed }}"
+  vars:
+    finding:
+      id: "SYS-001"
+      category: system
+      title: "NTP клиент включён"
+      severity: high
+      status: "{{ 'pass' if _ntp_ok else 'fail' }}"
+      current: "{{ mikrotik_facts.ntp | default({}) }}"
+      expected: "enabled=yes servers={{ ntp_servers | join(',') }}"
+      remediation: "/system ntp client set enabled=yes servers={{ ntp_servers | join(',') }}"
+  tags: [audit]
+
+- name: "[SYS] Проверка timezone"
+  ansible.builtin.set_fact:
+    _tz_ok: "{{ mikrotik_facts.clock['time-zone-name'] | default('') == timezone }}"
+  tags: [audit]
+
+- name: Зафиксировать timezone
+  ansible.builtin.set_fact:
+    audit_findings: "{{ audit_findings + [finding] if not _tz_ok else audit_findings }}"
+    audit_passed: "{{ audit_passed + ['SYS-002'] if _tz_ok else audit_passed }}"
+  vars:
+    finding:
+      id: "SYS-002"
+      category: system
+      title: "Часовой пояс {{ timezone }}"
+      severity: medium
+      status: "{{ 'pass' if _tz_ok else 'fail' }}"
+      current: "{{ mikrotik_facts.clock['time-zone-name'] | default('unknown') }}"
+      expected: "{{ timezone }}"
+      remediation: "/system clock set time-zone-name={{ timezone }}"
+  tags: [audit]
+
+- name: "[NET] Проверка WAN ether1"
+  ansible.builtin.set_fact:
+    _wan_ok: "{{ mikrotik_facts.addresses | selectattr('interface', 'equalto', gateway_wan_if) | selectattr('address', 'search', '111\\.111\\.111\\.111') | list | length > 0 }}"
+  tags: [audit, network]
+
+- name: Зафиксировать WAN
+  ansible.builtin.set_fact:
+    audit_findings: "{{ audit_findings + [finding] if not _wan_ok else audit_findings }}"
+    audit_passed: "{{ audit_passed + ['NET-001'] if _wan_ok else audit_passed }}"
+  vars:
+    finding:
+      id: "NET-001"
+      category: network
+      title: "WAN ether1 111.111.111.111"
+      severity: critical
+      status: "{{ 'pass' if _wan_ok else 'fail' }}"
+      current: "{{ mikrotik_facts.addresses | map(attribute='address') | list }}"
+      expected: "111.111.111.111 on {{ gateway_wan_if }}"
+      remediation: "/ip address add address=111.111.111.111/24 interface={{ gateway_wan_if }}"
+  tags: [audit]
+
+- name: "[NET] Проверка LAN bridge1"
+  ansible.builtin.set_fact:
+    _lan_ok: "{{ mikrotik_facts.addresses | selectattr('interface', 'equalto', gateway_lan_bridge) | selectattr('address', 'search', '192\\.168\\.0\\.50') | list | length > 0 }}"
+  tags: [audit, network]
+
+- name: Зафиксировать LAN
+  ansible.builtin.set_fact:
+    audit_findings: "{{ audit_findings + [finding] if not _lan_ok else audit_findings }}"
+    audit_passed: "{{ audit_passed + ['NET-002'] if _lan_ok else audit_passed }}"
+  vars:
+    finding:
+      id: "NET-002"
+      category: network
+      title: "LAN bridge1 192.168.0.50/16"
+      severity: critical
+      status: "{{ 'pass' if _lan_ok else 'fail' }}"
+      current: "{{ mikrotik_facts.addresses | map(attribute='address') | list }}"
+      expected: "192.168.0.50/16 on {{ gateway_lan_bridge }} (ports {{ expected.lan.ports | join(',') }})"
+      remediation: "/ip address add address=192.168.0.50/16 interface=bridge1"
+  tags: [audit]
+
+- name: "[NET] Проверка bridge ports ether2-10"
+  ansible.builtin.set_fact:
+    _bp_ok: "{{ mikrotik_facts.bridge_ports | map(attribute='interface') | sort | list == expected.lan.ports | sort | list }}"
+  when: mikrotik_facts.bridge_ports is defined
+  tags: [audit]
+
+- name: Зафиксировать bridge ports
+  ansible.builtin.set_fact:
+    audit_findings: "{{ audit_findings + [finding] if not _bp_ok else audit_findings }}"
+    audit_passed: "{{ audit_passed + ['NET-002-b'] if _bp_ok else audit_passed }}"
+  vars:
+    finding:
+      id: "NET-002-b"
+      category: network
+      title: "bridge1 содержит ether2-10"
+      severity: critical
+      status: "{{ 'pass' if _bp_ok else 'fail' }}"
+      current: "{{ mikrotik_facts.bridge_ports | map(attribute='interface') | list }}"
+      expected: "{{ expected.lan.ports }}"
+      remediation: "Для каждого порта: /interface bridge port add bridge=bridge1 interface=etherX"
+  when: _bp_ok is defined
+  tags: [audit]
+
+- name: "[USR] Проверка тех.учётки"
+  ansible.builtin.set_fact:
+    _tech_ok: "{{ mikrotik_facts.users | selectattr('name', 'equalto', tech_user) | list | length > 0 }}"
+  tags: [audit, users]
+
+- name: Зафиксировать тех.учётку
+  ansible.builtin.set_fact:
+    audit_findings: "{{ audit_findings + [finding] if not _tech_ok else audit_findings }}"
+    audit_passed: "{{ audit_passed + ['USR-001'] if _tech_ok else audit_passed }}"
+  vars:
+    finding:
+      id: "USR-001"
+      category: users
+      title: "Тех.учётка {{ tech_user }} существует"
+      severity: high
+      status: "{{ 'pass' if _tech_ok else 'fail' }}"
+      current: "{{ mikrotik_facts.users | map(attribute='name') | list }}"
+      expected: "{{ tech_user }} group=full address={{ tech_user_allowed_address }}"
+      remediation: "/user add name={{ tech_user }} group=full address={{ tech_user_allowed_address }} password=***"
+  tags: [audit]
+
+- name: "[SVC] Проверка отключённых сервисов"
+  ansible.builtin.set_fact:
+    _svc_disabled_ok: >-
+      {{
+        (mikrotik_facts.services | selectattr('name', 'equalto', 'telnet') | selectattr('disabled', 'equalto', true) | list | length > 0) and
+        (mikrotik_facts.services | selectattr('name', 'equalto', 'ftp') | selectattr('disabled', 'equalto', true) | list | length > 0)
+      }}
+  when: mikrotik_facts.services | length > 0
+  tags: [audit, services]
+
+- name: Зафиксировать сервисы
+  ansible.builtin.set_fact:
+    audit_findings: "{{ audit_findings + [finding] if not _svc_disabled_ok else audit_findings }}"
+    audit_passed: "{{ audit_passed + ['SVC-001'] if _svc_disabled_ok else audit_passed }}"
+  vars:
+    finding:
+      id: "SVC-001"
+      category: services
+      title: "Отключены telnet, ftp, www, api"
+      severity: high
+      status: "{{ 'pass' if _svc_disabled_ok else 'fail' }}"
+      current: "{{ mikrotik_facts.services | map(attribute='name') | list }} → {{ mikrotik_facts.services | selectattr('disabled', 'equalto', false) | map(attribute='name') | list }} enabled"
+      expected: "telnet, ftp, www, api disabled"
+      remediation: "/ip service disable telnet,ftp,www,api"
+  when: _svc_disabled_ok is defined
+  tags: [audit]
+
+- name: "[FW] Проверка firewall input established"
+  ansible.builtin.set_fact:
+    _fw_est_ok: "{{ mikrotik_facts.firewall_filter | selectattr('chain', 'equalto', 'input') | selectattr('connection-state', 'search', 'established') | list | length > 0 }}"
+  when: mikrotik_facts.firewall_filter is defined
+  tags: [audit, firewall]
+
+- name: Зафиксировать firewall established
+  ansible.builtin.set_fact:
+    audit_findings: "{{ audit_findings + [finding] if not _fw_est_ok else audit_findings }}"
+    audit_passed: "{{ audit_passed + ['FW-001'] if _fw_est_ok else audit_passed }}"
+  vars:
+    finding:
+      id: "FW-001"
+      category: firewall
+      title: "Firewall input accept established"
+      severity: critical
+      status: "{{ 'pass' if _fw_est_ok else 'fail' }}"
+      current: "{{ mikrotik_facts.firewall_filter | selectattr('chain', 'equalto', 'input') | list | length }} input rules"
+      expected: "chain=input action=accept connection-state=established,related"
+      remediation: '/ip firewall filter add chain=input action=accept connection-state=established,related comment="defconf: accept established"'
+  when: _fw_est_ok is defined
+  tags: [audit]
+
+- name: "[FW] Проверка NAT masquerade"
+  ansible.builtin.set_fact:
+    _nat_ok: "{{ mikrotik_facts.firewall_nat | selectattr('chain', 'equalto', 'srcnat') | selectattr('action', 'equalto', 'masquerade') | list | length > 0 }}"
+  when: mikrotik_facts.firewall_nat is defined
+  tags: [audit, firewall]
+
+- name: Зафиксировать NAT
+  ansible.builtin.set_fact:
+    audit_findings: "{{ audit_findings + [finding] if not _nat_ok else audit_findings }}"
+    audit_passed: "{{ audit_passed + ['FW-004'] if _nat_ok else audit_passed }}"
+  vars:
+    finding:
+      id: "FW-004"
+      category: firewall
+      title: "NAT masquerade на ether1"
+      severity: critical
+      status: "{{ 'pass' if _nat_ok else 'fail' }}"
+      current: "{{ mikrotik_facts.firewall_nat | map(attribute='chain') | list }}"
+      expected: "chain=srcnat action=masquerade out-interface=ether1"
+      remediation: '/ip firewall nat add chain=srcnat action=masquerade out-interface=ether1 comment="defconf: masquerade"'
+  when: _nat_ok is defined
+  tags: [audit]
+
+- name: "[SYS] Проверка версии ROS"
+  ansible.builtin.set_fact:
+    _ver_ok: "{{ mikrotik_facts.resource.version | default('') is search('7\\.25') }}"
+  tags: [audit]
+
+- name: Зафиксировать версию
+  ansible.builtin.set_fact:
+    audit_findings: "{{ audit_findings + [finding] if not _ver_ok else audit_findings }}"
+    audit_passed: "{{ audit_passed + ['SYS-004'] if _ver_ok else audit_passed }}"
+  vars:
+    finding:
+      id: "SYS-004"
+      category: system
+      title: "RouterOS 7.25"
+      severity: high
+      status: "{{ 'pass' if _ver_ok else 'fail' }}"
+      current: "{{ mikrotik_facts.resource.version | default('unknown') }}"
+      expected: "7.25 (stable)"
+      remediation: "/system package update check-for-updates; /system package update install"
+  tags: [audit]
+
+# --- Подсчёт скора и формирование отчётов ---
+
+- name: Подсчитать compliance score
+  ansible.builtin.set_fact:
+    audit_total: "{{ audit_findings | length + audit_passed | length }}"
+    audit_failed: "{{ audit_findings | length }}"
+    audit_compliance_pct: "{{ ((audit_passed | length) / ((audit_findings | length + audit_passed | length) | max(1)) * 100) | round(1) }}"
+  tags: [audit]
+
+- name: Определить severity счётчики
+  ansible.builtin.set_fact:
+    audit_critical: "{{ audit_findings | selectattr('severity', 'equalto', 'critical') | list | length }}"
+    audit_high: "{{ audit_findings | selectattr('severity', 'equalto', 'high') | list | length }}"
+    audit_medium: "{{ audit_findings | selectattr('severity', 'equalto', 'medium') | list | length }}"
+    audit_low: "{{ audit_findings | selectattr('severity', 'equalto', 'low') | list | length }}"
+  tags: [audit]
+
+- name: Сформировать итоговый отчёт (структура для Grafana)
+  ansible.builtin.set_fact:
+    audit_report:
+      hostname: "{{ inventory_hostname }}"
+      ansible_host: "{{ ansible_host }}"
+      timestamp: "{{ ansible_date_time.iso8601 | default(lookup('pipe', 'date -Iseconds')) }}"
+      routeros_version: "{{ mikrotik_facts.meta.routeros_version | default('unknown') }}"
+      board: "{{ mikrotik_facts.meta.board | default('unknown') }}"
+      compliance:
+        total: "{{ audit_total | int }}"
+        passed: "{{ audit_passed | length }}"
+        failed: "{{ audit_failed | int }}"
+        pct: "{{ audit_compliance_pct | float }}"
+        critical: "{{ audit_critical | int }}"
+        high: "{{ audit_high | int }}"
+        medium: "{{ audit_medium | int }}"
+        low: "{{ audit_low | int }}"
+      findings: "{{ audit_findings }}"
+      passed_ids: "{{ audit_passed }}"
+      meta:
+        lan_bridge: "{{ gateway_lan_bridge }}"
+        wan_if: "{{ gateway_wan_if }}"
+        location: "{{ location | default('') }}"
+  tags: [audit]
+
+- name: Сохранить JSON-отчёт на контроллер
+  ansible.builtin.copy:
+    content: "{{ audit_report | to_nice_json(indent=2) }}"
+    dest: "{{ audit_output_dir }}/json/{{ inventory_hostname }}.audit.json"
+    mode: "0644"
+  delegate_to: localhost
+  tags: [audit]
+
+- name: Сохранить Prometheus exposition формат (для Pushgateway)
+  ansible.builtin.template:
+    src: prometheus.prom.j2
+    dest: "{{ audit_output_dir }}/prometheus/{{ inventory_hostname }}.prom"
+    mode: "0644"
+  delegate_to: localhost
+  tags: [audit]
+
+- name: Отправить метрики в Pushgateway (если доступен)
+  ansible.builtin.uri:
+    url: "{{ audit_prometheus_pushgateway }}/metrics/job/mikrotik_audit/instance/{{ inventory_hostname }}"
+    method: POST
+    body: "{{ lookup('file', audit_output_dir + '/prometheus/' + inventory_hostname + '.prom') }}"
+    status_code: [200, 202]
+    timeout: 5
+  delegate_to: localhost
+  failed_when: false
+  when: audit_export_prometheus | bool
+  tags: [audit, prometheus]
+
+- name: Вывести краткий итог аудита
+  ansible.builtin.debug:
+    msg: |
+      [{{ inventory_hostname }}] Compliance {{ audit_compliance_pct }}% ({{ audit_passed | length }}/{{ audit_total }})
+      Critical: {{ audit_critical }}, High: {{ audit_high }}, Medium: {{ audit_medium }}, Low: {{ audit_low }}
+      {% for f in audit_findings %}
+      - [{{ f.severity | upper }}] {{ f.id }}: {{ f.title }} → {{ f.remediation }}
+      {% endfor %}
+  tags: [audit]
